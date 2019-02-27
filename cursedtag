@@ -1,0 +1,976 @@
+#!/usr/bin/env bash
+#
+# cursedtag - a console ID3 tag editor.
+
+# default values (can be overriden)
+: ${CURSEDTAG_DEFAULT_TEMPLATE:=}
+: ${CURSEDTAG_FIELDS:="TIT2 TPE1 TPE2 TALB
+                TDRC TRCK TCON COMM TCOM TCOP TIT1"}
+
+# default colors
+: ${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}
+: ${CURSEDTAG_COLOR_OPTION:=$'\e[0m'}
+: ${CURSEDTAG_COLOR_STATUS:=$'\e[33m'}
+: ${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}
+: ${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}
+: ${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}
+
+# mapping of frame ids used by mid3v2 to field labels.
+declare -A fieldmapping
+fieldmapping=(
+    [TIT2]="Title"
+    [TPE1]="Artist"
+    [TPE2]="Album artist"
+    [TALB]="Album"
+    [TDRC]="Year"
+    [TRCK]="Track"
+    [TCON]="Genre"
+    [TCOM]="Composer"
+    [COMM]="Comment"
+    [TOPE]="Original artist"
+    [TIT1]="Grouping"
+    [TCOP]="Copyright"
+)
+
+declare -A specifiers
+specifiers=(
+    [TIT2]=t  # Title
+    [TPE1]=a  # Artist
+    [TPE2]=z  # Album artist
+    [TALB]=b  # Album
+    [TDRC]=y  # Year
+    [TRCK]=n  # Track
+    [TCON]=g  # Genre
+    [TCOM]=p  # Composer
+    [COMM]=c  # Comment
+    [TOPE]=o  # Original artist
+    [TIT1]=G  # Grouping
+    [TCOP]=r  # Copyright
+)
+
+declare -a fieldorder
+fieldorder=(${CURSEDTAG_FIELDS//:/ })
+
+get_term_size() {
+    # Get terminal size ('stty' is POSIX and always available).
+    # This can't be done reliably across all bash versions in pure bash.
+    read -r LINES COLUMNS < <(stty size)
+
+    # Max items that fit in the scroll area (leaving first & last row empty)
+    max_items=$((${LINES%% *} - 2))
+}
+
+setup_terminal() {
+    # Setup the terminal for the TUI.
+    # '\e[?1049h': Use alternative screen buffer.
+    # '\e[?7l':    Disable line wrapping.
+    # '\e[?25l':   Hide the cursor.
+    # '\e[2J':     Clear the screen.
+    # '\e[1;Nr':   Limit scrolling to scrolling area.
+    #              Also sets cursor to (0,0).
+    printf '\e[?1049h\e[?7l\e[?25l\e[2J\e[1;%sr' "$max_items"
+
+    # Hide echoing of user input
+    stty -echo
+}
+
+reset_terminal() {
+    # Reset the terminal to a useable state (undo all changes).
+    # '\e[?7h':   Re-enable line wrapping.
+    # '\e[?25h':  Unhide the cursor.
+    # '\e[2J':    Clear the terminal.
+    # '\e[;r':    Set the scroll region to its default value.
+    #             Also sets cursor to (0,0).
+    # '\e[?1049l: Restore main screen buffer.
+    printf '\e[?7h\e[?25h\e[2J\e[;r\e[?1049l'
+
+    # Show user input.
+    stty echo
+}
+
+clear_screen() {
+    # Only clear the scrolling window.
+    # '\e[%sH':    Move cursor to bottom of scroll area.
+    # '\e[9999C':  Move cursor to right edge of the terminal.
+    # '\e[1J':     Clear screen to top left corner (from cursor up).
+    # '\e[2J':     Clear the terminal.
+    # '\e[1;%sr':  Clearing the screen resets the scroll region(?). Re-set it.
+    #              Also sets cursor to (0,0).
+    printf '\e[%sH\e[9999C\e[1J\e[2J\e[1;%sr' \
+           "((LINES - 2))" "$max_items"
+}
+
+clear_line() {
+    printf "\e[${1}H\r%-${COLUMNS}s" " "
+}
+
+move_cursor() {
+    printf "\e[${1};${2:-1}H"
+}
+
+show_cursor() {
+    printf '\e[?25h'
+}
+
+hide_cursor() {
+    printf '\e[?25l'
+}
+
+array_contains() {
+    local seeking=$1; shift
+    local in=0
+    for element; do
+        if [[ $element == $seeking ]]; then
+            return
+        fi
+    done
+    false
+}
+
+convert_time() {
+    local h=$(($1 / 3600))
+    local h_remain=$(($1 & 3600))
+    local m=$(($h_remain / 60))
+    local s=$(($1 % 60))
+    if (( h > 0 )); then
+        printf "%02d:%02d:%02.0f\n" $h $m $s
+    else
+        printf "%02d:%02.0f\n" $m $s
+    fi
+}
+
+strindex() {
+    local x="${1%%$2*}"
+    [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
+}
+
+join_by() {
+    local IFS="$1"; shift; echo "$*";
+}
+
+print_status_line() {
+    local others=""
+    local files=$(($# - 1))
+    if [ $# -gt 1 ]; then
+        others=" [and $files others]"
+    fi
+    move_cursor 0
+    printf '%s%s%s \e[0m\n' $CURSEDTAG_COLOR_STATUS "$1" "$others"
+}
+
+print_option() {
+    local option_color=$CURSEDTAG_COLOR_OPTION
+    local mark_color=$CURSEDTAG_COLOR_MARKED
+    local mark_symbol=" "
+    if $1; then # if marked
+        mark_symbol="*"
+        option_color=$CURSEDTAG_COLOR_MARKED
+    fi
+    if $2; then # if selected
+        option_color=$CURSEDTAG_COLOR_SELECTED
+    fi
+    printf ' %s%s%s %s \e[0m' $mark_color "$mark_symbol" $option_color "$3"
+}
+
+editor_prompt() {
+    local append=$1
+    local y=$2
+    local x=$(($3 + 7))
+    local input=$4
+    local original=$input
+    local field_width=$(($COLUMNS - $x + 2))
+
+    local cursor=0
+    local cursor_offset=0
+    if $append; then
+        cursor=${#input}
+    fi
+
+    while true; do
+        hide_cursor
+        move_cursor $y $(($x - 1))
+        printf "%-${field_width}s\r" " "
+        move_cursor $y $x
+        printf "$input"
+        move_cursor $y $(($x + $cursor))
+        show_cursor
+
+        # catch multi-char special key sequences
+        read -sN1 key
+        read -sN1 -t 0.0001 k1
+        read -sN1 -t 0.0001 k2
+        read -sN1 -t 0.0001 k3
+        key+=${k1}${k2}${k3}
+        case "$key" in
+            $'\e[D')
+                # left arrow
+                ((cursor > 0 )) && ((cursor--))
+                ;;
+            $'\e[C') # right arrow
+                ((cursor < ${#input} )) && ((cursor++))
+                ;;
+            $'\ca'|$'\e[1~'|$'\e0H'|$'\e[H') # home
+                cursor=0
+                ;;
+            $'\ce'|$'\e[4~'|$'\e0F'|$'\e[F') # end
+                cursor=${#input}
+                ;;
+            $'\x7f'|$'\177') # backspace
+                if (( cursor > 0)); then
+                    r=$(($cursor - 1))
+                    input=${input:0:$r}${input:$cursor:${#input}}
+                    cursor=$r
+                fi
+                ;;
+            $'\h'|$'\b') # ctrl+backspace
+                input=
+                cursor=0
+                ;;
+            $'\e[3~') # delete
+                l=$(($cursor + 1))
+                input=${input:0:$cursor}${input:$l:${#input}}
+                ;;
+            ''|$'\n')
+                break
+                ;;
+            $'\x1b') # escape
+                input=$original
+                break
+                ;;
+            *)
+                if ! [[ $key =~ [[:cntrl:]] ]]; then
+                    input=${input:0:$cursor}$key${input:$cursor:${#input}}
+                    cursor=$(($cursor + ${#key}))
+                fi
+                ;;
+        esac
+    done
+
+    editor_prompt_output=$input
+}
+
+
+start_selector() {
+    local selected=1
+    local select_all=0
+
+    local marked=()
+
+    local offset=1
+    local lastoffset=0
+    local page_step=$(( $LINES - 3 ))
+
+    local idx=1
+    if [[ -n $preselected ]]; then
+        for opt; do
+            if [[ $opt == $preselected ]]; then
+                selected=$idx
+                offset=$(( $idx - max_items + 1 ))
+                offset=$(( $offset > 1 ? $offset : 1 ))
+                break
+            fi
+            ((idx++))
+        done
+    fi
+
+    local clear=false
+    while true; do
+        if $clear || [ $lastoffset != $offset ]; then
+            hide_cursor
+            clear_screen
+            print_status_line "${preselected}"
+            clear=false
+        fi
+
+        if $file_renamed; then
+            file_renamed=false
+            return
+        fi
+
+        idx=1
+        lastoffset=$offset
+        for opt; do
+            if ((idx >= offset)) && ((idx < offset + max_items)); then
+                move_cursor $((2 - $offset + $idx))  # starting at 2nd row
+                local is_selected=false
+                local is_marked=false
+                [ $idx == $selected ] && \
+                    is_selected=true
+                array_contains $idx ${marked[@]} && \
+                    is_marked=true
+                print_option "$is_marked" "$is_selected" "$opt"
+            fi
+            ((idx++))
+        done
+
+        # catch multi-char special key sequences
+        read -sN1 key
+        read -sN1 -t 0.0001 k1
+        read -sN1 -t 0.0001 k2
+        read -sN1 -t 0.0001 k3
+        key+=${k1}${k2}${k3}
+        case "$key" in
+            k|$'\e[A')  # up arrow
+                if (( selected > 1 )); then
+                    ((selected--))
+                    if (( selected < offset )); then
+                        ((offset--))
+                    fi
+                fi
+                ;;
+            j|$'\e[B')  # down arrow
+                if (( selected < $# )); then
+                    ((selected++))
+                    if (( selected > offset + max_items - 1 )); then
+                        ((offset++))
+                    fi
+                fi
+                ;;
+            $'\cb'|$'\e[5~')  # ctrl+b, page up
+                if (( selected - page_step > 1 )); then
+                    ((selected-=page_step))
+                    if (( selected < offset )); then
+                        ((offset-=page_step))
+                    fi
+                else
+                    selected=1
+                    offset=1
+                fi
+                ;;
+            $'\cf'|$'\e[6~')  # ctrl+f, page down
+                if (( selected + page_step < $# )); then
+                    ((selected+=page_step))
+                    if (( selected > offset + max_items - 1 )); then
+                        ((offset+=page_step))
+                    fi
+                else
+                    selected=$#
+                    ((offset=$# - max_items + 1))
+                    offset=$(( $offset > 1 ? $offset : 1 ))
+                fi
+                ;;
+            g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
+                selected=1
+                offset=1
+                ;;
+            G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
+                selected=$#
+                ((offset=$# - max_items + 1))
+                offset=$(( $offset > 1 ? $offset : 1 ))
+                ;;
+            $'\ca'|$'\x01')  # ctrl+a
+                ((select_all ^= 1))
+                if ((select_all == 1)); then
+                    marked=( $(seq 1 $(($idx - 1))) )
+                else
+                    marked=()
+                fi
+                ;;
+            ' '|$'\x09')  # tab
+                local found=false
+                for i in ${!marked[@]}; do
+                    if [[ ${marked[i]} == $selected ]]; then
+                        found=true
+                        unset 'marked[i]'
+                    fi
+                done
+                if ! $found; then
+                    marked+=( $selected )
+                fi
+                ;;
+            e|l|$'\n'|$'\e[C') # enter, right arrow
+                local marked_strings=()
+                for m in ${marked[@]}; do
+                    (( m != selected )) && marked_strings+=("${!m}")
+                done
+                start_editor "${!selected}" "${marked_strings[@]}"
+                clear=true
+                ;;
+            r)
+                local marked_strings=()
+                for m in ${marked[@]}; do
+                    (( m != selected )) && marked_strings+=("${!m}")
+                done
+                start_scanner true "${!selected}" "${marked_strings[@]}"
+                clear=true
+                ;;
+            f)
+                local marked_strings=()
+                for m in ${marked[@]}; do
+                    (( m != selected )) && marked_strings+=("${!m}")
+                done
+                start_scanner false "${!selected}" "${marked_strings[@]}"
+                clear=true
+                ;;
+            q|$'\x1b')
+                clean_exit
+                ;;
+        esac
+    done
+}
+
+bulk_rename() {
+    local template=$1; shift
+    for opt; do
+        local newname=$template
+
+        # read file
+        declare -A fields
+        while read line; do
+            local tag=$(echo $line | grep -ao "^....")
+            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+            if [[ -v "specifiers[$tag]" ]]; then
+                fields[${specifiers[$tag]}]=${value}
+            fi
+        done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
+
+        # replace specifiers with data
+        for s in ${specifiers[@]}; do
+            if [[ $input =~ .*%${s}.* ]]; then
+                local substitution=$(echo ${fields[$s]} | \
+                    sed -e 's/&/\\&/g' -e 's;/;\\/;g')
+                newname=$(echo $newname | sed "s/%${s}/${substitution}/g")
+            fi
+        done
+
+        if ! [[ $opt == $newname.mp3 ]]; then
+            echo "   $opt"
+            echo -n "-> $newname.mp3 :"
+            if [ -z "${newname// }" ]; then
+                printf "%s empty file name. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
+            elif [ -f "$newname".mp3 ]; then
+                printf "%s file exists. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
+            else
+                mkdir -p "$(dirname "$newname".mp3)"
+                mv -n "$opt" "$newname".mp3 &> /dev/null
+                if [ $? -ne 0 ]; then
+                    printf "%s could not rename. \e[0m\n\n" \
+                        $CURSEDTAG_COLOR_ERROR
+                else
+                    printf "%s renamed. \e[0m\n\n" $CURSEDTAG_COLOR_SUCCESS
+                    # FIXME:
+                    preselected=$newname.mp3
+                    file_renamed=true
+                fi
+            fi
+        else
+            echo "   $opt"
+            echo -e "-> $opt : unchanged\n"
+        fi
+    done
+    echo
+    echo " [Press enter...]"
+    read
+}
+
+fill_tags() {
+    local template=$1; shift
+    for opt; do
+        declare -A data
+        while read line; do
+            local tag=$(echo $line | grep -ao "^....")
+            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+            array_contains $tag "${fieldorder[@]}" && \
+                if ! [ -v "data[$tag]" ]; then
+                    data[$tag]=$value
+                fi
+        done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
+
+        local regexp="$(echo $template | \
+                    sed -e 's,/,\\/,g ; s,\\,\\\\,g' \
+                    -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
+        local order_of_specifiers=()
+        for tag in ${!specifiers[@]}; do
+            local specifier=${specifiers[$tag]}
+            if [[ $template =~ .*%${specifier}.* ]]; then
+                local x=$(strindex "$template" "%${specifier}")
+                regexp="$(echo $regexp | sed "s/%${specifier}/\(.*?\)/g")"
+                if (( x >= 0 )); then
+                    order_of_specifiers[$x]=$tag
+                fi
+            fi
+        done
+
+        local idx=1
+        replacement=()
+        for tag in ${order_of_specifiers[@]}; do
+            replacement+=("${tag}=\\${idx}")
+            ((idx++))
+        done
+        replacement=$(join_by "^" "${replacement[@]}")
+        if [ -n "$replacement" ]; then
+            local output=$(basename "$opt" .mp3 | \
+                perl -ne "print if s/^${regexp}$/${replacement}/")
+            if [ -n "$output" ]; then
+                echo "   $opt "
+                options=() # "--$tag" "$value")
+                while IFS= read -r -d '^' line; do
+                    options+=("--$line")
+                done <<< "${output}^"
+                echo -e "   -> "${options[@]}"\n"
+                mid3v2 "${options[@]}" "$opt"
+            fi
+        fi
+    done
+    echo
+    echo " [Press enter...]"
+    read
+}
+
+start_scanner() {
+    local rename_mode=$1; shift
+    local input=${CURSEDTAG_DEFAULT_TEMPLATE}
+    local cursor=${#input}
+    local preview=""
+
+    declare -A fields
+    while read line; do
+        local tag=$(echo $line | grep -ao "^....")
+        local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+        if [[ -v "specifiers[$tag]" ]]; then
+            local short=${specifiers[$tag]}
+            if ! [ -v "fields[$short]" ]; then
+                fields[$short]=${value}
+            fi
+        fi
+    done <<< $(mid3v2 -q "$1" | grep -a "^....=" | tr '\0' '=')
+
+    local legend=()
+    for s in ${!specifiers[@]}; do
+        legend+=("%${specifiers[$s]}: ${fieldmapping[$s]}")
+    done
+    IFS=$'\n' sorted_legend=($(sort <<< "${legend[*]}"))
+
+    hide_cursor
+    clear_screen
+    print_status_line "$@"
+
+    move_cursor 5
+    printf "Legend\n"
+    for n in ${sorted_legend[@]}; do
+        printf "  %s\n" "$n"
+    done
+
+    while true; do
+        if $rename_mode; then
+            preview=$input
+            # replace specifiers with data
+            for s in ${specifiers[@]}; do
+                if [[ $preview =~ .*%${s}.* ]]; then
+                    local substitution=$(echo ${fields[$s]} |\
+                        sed -e 's/&/\\&/g' -e 's;/;\\/;g')
+                    if [ -z $substitution ]; then
+                        substitution="[…]"
+                    fi
+                    preview=$(echo $preview | \
+                        sed "s/%${s}/$substitution/g" | \
+                        fold -w ${COLUMNS} -s)
+                fi
+            done
+        else
+            # parse filename according to template
+            preview=""
+            local regexp="$(echo $input | \
+                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
+                    -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
+            local order=()
+            for s in ${specifiers[@]}; do
+                if [[ $input =~ .*%${s}.* ]]; then
+                    local x=$(strindex "$input" "%${s}")
+                    regexp="$(echo $regexp | sed "s/%${s}/\(.*?\)/g")"
+                    if (( x >= 0 )); then
+                        order[$x]=$s
+                    fi
+                fi
+            done
+
+            local idx=1
+            local replacement=()
+            for s in ${order[@]}; do
+                replacement+=("%${s}=\\${idx}")
+                ((idx++))
+            done
+            replacement=$(join_by " " "${replacement[@]}")
+            if [ -n "$replacement" ]; then
+                local filename=$(basename $1 .mp3)
+                output=$(echo $filename | \
+                    perl -ne "print if s|^${regexp}|${replacement}|")
+                [ -n "$output" ] && \
+                    preview=$(echo $output | fold -w ${COLUMNS} -s)
+            fi
+        fi
+
+        # erase only lines that change to avoid too much clear_screen
+        hide_cursor
+        clear_line 2
+        clear_line 3
+        clear_line 4
+        move_cursor 2
+        printf " > %s\n" "$input"
+        printf '   \e[32m%s\e[0m\n\n' "$preview"
+        move_cursor 2 $((4 + $cursor))
+        show_cursor
+
+        # catch multi-char special key sequences
+        read -sN1 key
+        read -sN1 -t 0.0001 k1
+        read -sN1 -t 0.0001 k2
+        read -sN1 -t 0.0001 k3
+        key+=${k1}${k2}${k3}
+        case "$key" in
+            $'\e[D')
+                # left arrow
+                ((cursor > 0 )) && ((cursor--))
+                ;;
+            $'\e[C') # right arrow
+                ((cursor < ${#input} )) && ((cursor++))
+                ;;
+            $'\ca'|$'\e[1~'|$'\e0H'|$'\e[H') # home
+                cursor=0
+                ;;
+            $'\ce'|$'\e[4~'|$'\e0F'|$'\e[F') # end
+                cursor=${#input}
+                ;;
+            $'\x7f'|$'\177') # backspace
+                if (( cursor > 0)); then
+                    r=$(($cursor - 1))
+                    input=${input:0:$r}${input:$cursor:${#input}}
+                    cursor=$r
+                fi
+                ;;
+            $'\h'|$'\b') # ctrl+backspace
+                input=
+                cursor=0
+                ;;
+            $'\e[3~') # delete
+                l=$(($cursor + 1))
+                input=${input:0:$cursor}${input:$l:${#input}}
+                ;;
+            ''|$'\n')
+                break
+                ;;
+            $'\x1b') # escape
+                return
+                ;;
+            *)
+                if ! [[ $key =~ [[:cntrl:]] ]]; then
+                    input=${input:0:$cursor}$key${input:$cursor:${#input}}
+                    cursor=$(($cursor + ${#key}))
+                fi
+                ;;
+        esac
+    done
+
+    # redraw the screen without legend
+    clear_screen
+    print_status_line "$@"
+    printf " > %s\n" "$input"
+    printf "   %s%s\e[0m\n" $CURSEDTAG_COLOR_SUCCESS "$preview"
+    printf "\n"
+
+    if $rename_mode; then
+        bulk_rename "$input" "$@"
+    else
+        fill_tags "$input" "$@"
+    fi
+
+    return $returncode
+}
+
+set_field() {
+    local tag=$1; shift
+    local value=$1; shift
+    if [[ $tag =~ ^[A-Z0-9]*$ ]]; then
+        local options=("--$tag" "$value")
+        mid3v2 "${options[@]}" "$@"
+    fi
+}
+
+erase_field() {
+    local tag=$1; shift
+    if [[ $tag =~ ^[A-Z0-9]*$ ]]; then
+        mid3v2 --delete-frames $tag "$@"
+    fi
+}
+
+start_editor() {
+    local selected=1
+    local offset=1
+    local lastoffset=0
+
+    local page_step=$(( $LINES - 3 ))
+    local list_size=${#fieldorder[@]}
+
+    local is_yanked=false
+    local yanked=""
+
+    # read data
+    declare -A data
+    declare -A newdata
+    local secs=$(sox --i -D "$1" 2> /dev/null)
+    secs="${secs%%.*}"
+    data[length]=$(convert_time $secs)
+    data[size]=$(du -h "$1" | awk '{print $1}')
+    data[bitrate]=$(sox --i -B "$1" 2> /dev/null)
+
+    while read line; do
+        tag=$(echo $line | grep -ao "^....")
+        value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+        array_contains $tag "${fieldorder[@]}" && \
+            if ! [ -v "data[$tag]" ]; then
+                data[$tag]=$value
+                newdata[$tag]=$value
+            fi
+    done <<< $(mid3v2 -q "$1" | grep -a "^....=" | tr '\0' '=')
+
+    # get widest field name to create nice grid
+    local max_field_length=0
+    for s in ${fieldorder[@]}; do
+        if [ ${#fieldmapping[$s]} -gt $max_field_length ]; then
+            local max_field_length=${#fieldmapping[$s]}
+        fi
+    done
+    ((max_field_length++))
+
+    local clear=false
+    while true; do
+        local field_index=$(($selected - 1))
+        local field=${fieldorder[$field_index]}
+
+        # clear screen if the offset changed
+        if $clear || [ $lastoffset != $offset ]; then
+            hide_cursor
+            clear_screen
+            print_status_line "$@"
+            clear=false
+            printf "bitrate: %s%-4s\e[0m  file size: %s%-4s\e[0m  length: %s%s\e[0m\n" \
+                $CURSEDTAG_COLOR_OPTION "${data[bitrate]}" \
+                $CURSEDTAG_COLOR_OPTION "${data[size]}" \
+                $CURSEDTAG_COLOR_OPTION "${data[length]}"
+        fi
+
+        # print options
+        idx=1
+        lastoffset=$offset
+        for s in ${fieldorder[@]}; do
+            if ((idx >= offset)) && ((idx < offset + max_items)); then
+                local fieldname=${fieldmapping[$s]}
+                local is_selected=false
+                local is_unsaved=false
+                [ $idx == $selected ] && is_selected=true
+                if ! [[ "${data[$s]}" == "${newdata[$s]}" ]]; then
+                    is_unsaved=true
+                fi
+                move_cursor $((3 - $offset + $idx))  # starting at 3nd row
+                printf " %-${max_field_length}s: " "$fieldname"
+                print_option "$is_unsaved" "$is_selected" "${newdata[$s]}"
+            fi
+            ((idx++))
+        done
+        read -sN1 key
+        read -sN1 -t 0.0001 k1
+        read -sN1 -t 0.0001 k2
+        read -sN1 -t 0.0001 k3
+        key+=${k1}${k2}${k3}
+        case "$key" in
+            k|$'\e[A')  # up arrow
+                if (( selected > 1 )); then
+                    ((selected--))
+                    if (( selected < offset )); then
+                        ((offset--))
+                    fi
+                fi
+                ;;
+            j|$'\e[B')  # down arrow
+                if (( selected < list_size )); then
+                    ((selected++))
+                    if (( selected > offset + max_items - 1 )); then
+                        ((offset++))
+                    fi
+                fi
+                ;;
+            $'\cb'|$'\e[5~')  # ctrl+b, page up
+                if (( selected - page_step > 1 )); then
+                    ((selected-=page_step))
+                    if (( selected < offset )); then
+                        ((offset-=page_step))
+                    fi
+                else
+                    selected=1
+                    offset=1
+                fi
+                ;;
+            $'\cf'|$'\e[6~')  # ctrl+f, page down
+                if (( selected + page_step < list_size )); then
+                    ((selected+=page_step))
+                    if (( selected > offset + max_items - 1 )); then
+                        ((offset+=page_step))
+                    fi
+                else
+                    selected=$list_size
+                    ((offset=list_size - max_items + 1))
+                    offset=$(( $offset > 1 ? $offset : 1 ))
+                fi
+                ;;
+            g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
+                selected=1
+                offset=1
+                ;;
+            G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
+                selected=$list_size
+                ((offset=list_size - max_items + 1))
+                offset=$(( $offset > 1 ? $offset : 1 ))
+                ;;
+            i)
+                editor_prompt_output=""
+                editor_prompt false $(($selected - $offset + 3)) \
+                    $max_field_length "${newdata[$field]}"
+                newdata[$field]=$editor_prompt_output
+                hide_cursor
+                clear_line $(($selected - $offset + 3))
+                ;;
+            a|$'\n')
+                editor_prompt_output=""
+                editor_prompt true $(($selected - $offset + 3)) \
+                    ${max_field_length} "${newdata[$field]}"
+                newdata[$field]=$editor_prompt_output
+                hide_cursor
+                clear_line $(($selected - $offset + 3))
+                ;;
+            y)  # yank
+                yanked=${newdata[$field]}
+                is_yanked=true
+                ;;
+            p)  # paste
+                if $is_yanked; then
+                    newdata[$field]=$yanked
+                    clear_line $(($selected - $offset + 3))
+                fi
+                ;;
+            x)  # erase
+                newdata[$field]=""
+                clear_line $(($selected - $offset + 3))
+                ;;
+            u)  # undo
+                newdata[$field]=${data[$field]}
+                clear_line $(($selected - $offset + 3))
+                ;;
+            S|W) # apply field to all files
+                data[$field]=${newdata[$field]}
+                if [ -n "${newdata[$field]}" ]; then
+                    set_field "$field" "${newdata[$field]}" "$@"
+                else
+                    erase_field "$field" "$@"
+                fi
+                clear_line $(($selected - $offset + 3))
+                ;;
+            s|w) # save
+                local setopts=()
+                local delopts=()
+                for n in "${!newdata[@]}"; do
+                    if ! [[ "${newdata[$n]}" == "${data[$n]}" ]]; then
+                        data[$n]=${newdata[$n]}
+                        if [[ -n "${newdata[$n]}" ]]; then
+                            setopts+=("--$n" "${newdata[$n]}")
+                        else
+                            delopts+=("$n")
+                        fi
+                    fi
+                done
+                if [ ${#setopts} -gt 0 ] || [ ${#delopts} -gt 0 ]; then
+                    clear_screen
+                    print_status_line "$@"
+                    echo
+                    echo "   $1"
+                    echo "   -> " "${setopts[@]}" ${delopts:+--delete-frames} \
+                        $(join_by "," "${delopts[@]}")
+                    echo
+                    mid3v2 "${setopts[@]}" ${delopts:+--delete-frames} \
+                        $(join_by "," "${delopts[@]}") "$1"
+                    echo " [Press enter...]"
+                    clear=true
+                    read
+                fi
+                ;;
+            h|$'\e[D'|$'\x1b')  # back to selector
+                return
+                ;;
+            q) # quit
+                clean_exit
+                ;;
+        esac
+    done
+}
+
+clean_exit() {
+    # ask for quit?
+    reset_terminal
+    show_cursor
+    trap '' EXIT
+    trap '' WINCH
+    echo >&2 $2
+    exit $1
+}
+
+start_in_directory() {
+    ls *.mp3 &> /dev/null
+    if [ $? -gt 0 ]; then
+        echo >&2 "No mp3 files found."
+        exit 1
+    fi
+
+    trap 'get_term_size; ' WINCH
+    trap 'reset_terminal' EXIT
+
+    get_term_size
+    setup_terminal
+
+    while true; do
+        ls *.mp3 &> /dev/null
+        if [ $? -gt 0 ]; then
+            clean_exit 1 "No mp3 files found."
+        fi
+        local mp3s=(*.mp3)
+        preselected="${mp3s[0]}"
+        ls .*mp3 &> /dev/null && mp3s+=(.*mp3)
+        start_selector "${mp3s[@]}"
+    done
+}
+
+start_in_editor() {
+    open_file=$1; shift
+    preselected=$(basename "$open_file")
+
+    trap 'get_term_size; ' WINCH
+    trap 'reset_terminal' EXIT
+
+    get_term_size
+    setup_terminal
+
+    start_editor "$open_file"
+    clear
+
+    builtin cd "$(dirname "$open_file")"
+    while true; do
+        ls *.mp3 &> /dev/null || \
+            clean_exit 1 "No mp3 files found."
+        local mp3s=(*.mp3)
+        ls .*mp3 &> /dev/null && \
+            mp3s+=(.*mp3)
+        start_selector "${mp3s[@]}"
+    done
+}
+
+# main
+if [ -n "$1" ]; then
+    if ! [ -e "$1" ]; then
+        echo >&2 "File not found."
+        exit 1
+    elif [ -d "$1" ]; then
+        builtin cd "$1"
+        start_in_directory
+    fi
+    start_in_editor "$1"
+else
+    start_in_directory
+fi
