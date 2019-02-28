@@ -84,7 +84,7 @@ Few simple *vi*-like shortcuts are supported: *h/j/k/l*, *g* & *G*.
 You can customize the program by setting following environment variables.
 
 ```sh
-    # Space-separated list of tag field IDs (plus the 'filename' literal).
+    # Space-separated list of tag field IDs
     # See mid3v2 -f for all frames.
     CURSEDTAG_FIELDS=…
 
