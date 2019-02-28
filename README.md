@@ -6,7 +6,7 @@
   </p>
 
   <p align="center">
-        <a href="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY" target="_blank"><img src="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY.svg" width="50%"/></a>
+        <a href="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY" target="_blank"><img src="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY.svg" width="70%"/></a>
   </p>
 <br>
 
@@ -40,9 +40,9 @@
 - `sox`
     - For retrieving information about audio files (bitrate, duration, ...).
 - `mid3v2`
-    - Program handling (*ID3 tags*).
+    - Program handling ID3 tags.
 
-All of these should be readily available in most distributions, likely already installed.
+All of these should be readily available in most distributions.
 
 
 ## Usage
@@ -85,7 +85,7 @@ You can customize the program by setting following environment variables.
 
 ```sh
     # Space-separated list of tag field IDs
-    # See mid3v2 -f for all frames.
+    # See mid3v2 -f for all frames. Note that not all frames are supported.
     CURSEDTAG_FIELDS=…
 
     # Value of this variable will be inserted
