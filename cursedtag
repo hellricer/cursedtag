@@ -254,7 +254,7 @@ editor_prompt() {
                 cursor=0
                 cursor_offset=0
                 ;;
-             $'\h'|$'\b') # ctrl+backspace
+            $'\h'|$'\b') # ctrl+backspace
                 cursor=0
                 cursor_offset=0
                 input=""
@@ -359,8 +359,8 @@ start_selector() {
                     is_selected=true
                 array_contains $idx ${marked[@]} && \
                     is_marked=true
-                local shortopt=$(ellipsis " $opt " 2)
-                print_option "$is_marked" "$is_selected" "$shortopt"
+                local short=$(ellipsis " $opt " 2)
+                print_option "$is_marked" "$is_selected" "$short"
             fi
             ((idx++))
         done
@@ -510,7 +510,7 @@ bulk_rename() {
                         $CURSEDTAG_COLOR_ERROR
                 else
                     printf "%s renamed. \e[0m\n\n" $CURSEDTAG_COLOR_SUCCESS
-                    # FIXME:
+                    # FIXME: file is still not selected after rename
                     preselected=$newname.mp3
                     file_renamed=true
                 fi
@@ -539,7 +539,7 @@ fill_tags() {
         done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
 
         local regexp="$(echo $template | \
-                    sed -e 's,/,\\/,g ; s,\\,\\\\,g' \
+                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
                     -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
         local order_of_specifiers=()
         for tag in ${!specifiers[@]}; do
@@ -560,9 +560,23 @@ fill_tags() {
             ((idx++))
         done
         replacement=$(join_by "^" "${replacement[@]}")
+        local parent_name=""
+        local parent=""
+        local filename=$(basename "$opt" .mp3)
+        local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
+        ((slashes > 0 )) && for i in $(seq 1 $slashes); do
+            parent_name="$(basename ${parent:-$PWD})"
+            if ! [[ $parent_name == "/" ]]; then
+                filename=${parent_name}/${filename}
+            else
+                filename=/$filename
+                break
+            fi
+            parent=$(dirname ${parent:-$PWD})
+        done
         if [ -n "$replacement" ]; then
-            local output=$(basename "$opt" .mp3 | \
-                perl -ne "print if s/^${regexp}$/${replacement}/")
+            local output=$(echo $filename | \
+                perl -ne "print if s|^${regexp}$|${replacement}|")
             if [ -n "$output" ]; then
                 echo "   $opt "
                 options=() # "--$tag" "$value")
@@ -653,10 +667,23 @@ start_scanner() {
                 ((idx++))
             done
             replacement=$(join_by " " "${replacement[@]}")
+            local parent_name=""
+            local parent=""
+            local filename=$(basename $1 .mp3)
+            local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
+            ((slashes > 0 )) && for i in $(seq 1 $slashes); do
+                parent_name="$(basename ${parent:-$PWD})"
+                if ! [[ $parent_name == "/" ]]; then
+                    filename=${parent_name}/${filename}
+                else
+                    filename=/$filename
+                    break
+                fi
+                parent=$(dirname ${parent:-$PWD})
+            done
             if [ -n "$replacement" ]; then
-                local filename=$(basename $1 .mp3)
                 output=$(echo $filename | \
-                    perl -ne "print if s|^${regexp}|${replacement}|")
+                    perl -ne "print if s|^${regexp}$|${replacement}|")
                 [ -n "$output" ] && \
                     preview=$(echo $output | fold -w ${COLS} -s)
             fi
@@ -805,9 +832,11 @@ start_editor() {
             clear_screen
             print_status_line "$@"
             clear=false
-            printf "bitrate: %s%-4s\e[0m  file size: %s%-4s\e[0m  length: %s%s\e[0m\n" \
-                $CURSEDTAG_COLOR_OPTION "${data[bitrate]}" \
-                $CURSEDTAG_COLOR_OPTION "${data[size]}" \
+            printf "bitrate: %s%-4s\e[0m  " \
+                $CURSEDTAG_COLOR_OPTION "${data[bitrate]}"
+            printf "file size: %s%-4s\e[0m  "\
+                $CURSEDTAG_COLOR_OPTION "${data[size]}"
+            printf "length: %s%s\e[0m\n" \
                 $CURSEDTAG_COLOR_OPTION "${data[length]}"
         fi
 
@@ -825,8 +854,8 @@ start_editor() {
                 fi
                 move_cursor $((3 - $offset + $idx))  # starting at 3nd row
                 printf " %-${max_field_length}s: " "$fieldname"
-                local shortopt=$(ellipsis " ${newdata[$s]} " ${max_field_length})
-                print_option "$is_unsaved" "$is_selected" "$shortopt"
+                local short=$(ellipsis " ${newdata[$s]} " ${max_field_length})
+                print_option "$is_unsaved" "$is_selected" "$short"
             fi
             ((idx++))
         done
@@ -937,7 +966,7 @@ start_editor() {
                 echo
                 echo "      " "${setopts[@]}" ${delopts:+--delete-frames} \
                     $(join_by "," "${delopts[@]}")
-		printf '   -> %s\n' "$@}"
+                printf '   -> %s\n' "$@}"
                 mid3v2 "${setopts[@]}" ${delopts:+--delete-frames} \
                     $(join_by "," "${delopts[@]}") "$1"
                 echo
