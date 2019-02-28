@@ -9,7 +9,7 @@
 
 # default colors
 : ${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}
-: ${CURSEDTAG_COLOR_OPTION:=$'\e[0m'}
+: ${CURSEDTAG_COLOR_OPTION:=$'\e[34m'}
 : ${CURSEDTAG_COLOR_STATUS:=$'\e[33m'}
 : ${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}
 : ${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}
@@ -54,10 +54,10 @@ fieldorder=(${CURSEDTAG_FIELDS//:/ })
 get_term_size() {
     # Get terminal size ('stty' is POSIX and always available).
     # This can't be done reliably across all bash versions in pure bash.
-    read -r LINES COLUMNS < <(stty size)
+    read -r ROWS COLS < <(stty size)
 
     # Max items that fit in the scroll area (leaving first & last row empty)
-    max_items=$((${LINES%% *} - 2))
+    max_items=$((${ROWS%% *} - 2))
 }
 
 setup_terminal() {
@@ -97,11 +97,11 @@ clear_screen() {
     # '\e[1;%sr':  Clearing the screen resets the scroll region(?). Re-set it.
     #              Also sets cursor to (0,0).
     printf '\e[%sH\e[9999C\e[1J\e[2J\e[1;%sr' \
-           "((LINES - 2))" "$max_items"
+           "((ROWS - 2))" "$max_items"
 }
 
 clear_line() {
-    printf "\e[${1}H\r%-${COLUMNS}s" " "
+    printf "\e[${1}H\r%-${COLS}s" " "
 }
 
 move_cursor() {
@@ -148,6 +148,17 @@ join_by() {
     local IFS="$1"; shift; echo "$*";
 }
 
+ellipsis() {
+    local i=$1
+    local n=$((${#i} + $2))
+    if [ ${n} -ge $COLS ]; then
+        len=$(($COLS))
+        i=${i::$len}
+        i="$i""…"
+    fi
+    printf "$i"
+}
+
 print_status_line() {
     local others=""
     local files=$(($# - 1))
@@ -155,43 +166,61 @@ print_status_line() {
         others=" [and $files others]"
     fi
     move_cursor 0
-    printf '%s%s%s \e[0m\n' $CURSEDTAG_COLOR_STATUS "$1" "$others"
+    status="${1}${others}"
+    short=$(ellipsis "$status" 0)
+    printf '%s%s\e[0m\n' "${CURSEDTAG_COLOR_STATUS}" "$short"
 }
 
 print_option() {
     local option_color=$CURSEDTAG_COLOR_OPTION
     local mark_color=$CURSEDTAG_COLOR_MARKED
     local mark_symbol=" "
-    if $1; then # if marked
+    if $1; then  # if marked
         mark_symbol="*"
         option_color=$CURSEDTAG_COLOR_MARKED
     fi
-    if $2; then # if selected
+    if $2; then  # if selected
         option_color=$CURSEDTAG_COLOR_SELECTED
     fi
-    printf ' %s%s%s %s \e[0m' $mark_color "$mark_symbol" $option_color "$3"
+    printf '%s%s%s%s' $mark_color "$mark_symbol" $option_color "$3"
+    printf '\e[0m'
 }
 
 editor_prompt() {
     local append=$1
     local y=$2
-    local x=$(($3 + 7))
+    local x=$(($3 + 6))
     local input=$4
     local original=$input
-    local field_width=$(($COLUMNS - $x + 2))
+    local field_width=$(($COLS - $x + 1))
+    local input_width=$(($field_width - 1))
 
     local cursor=0
     local cursor_offset=0
     if $append; then
         cursor=${#input}
+        cursor_offset=0
+        if (( ${#input} > $input_width )); then
+            cursor=$input_width
+            cursor_offset=$((${#input} - $input_width))
+        fi
     fi
 
     while true; do
+        local position=$(($cursor_offset + $cursor))
+
         hide_cursor
+        # erase input part of the field
         move_cursor $y $(($x - 1))
-        printf "%-${field_width}s\r" " "
+        printf "%${field_width}s\r" " "
+
         move_cursor $y $x
-        printf "$input"
+        ln=$(($input_width + 1))
+        local dots=" "
+        if (( cursor_offset + input_width < ${#input} )); then
+            dots="…"
+        fi
+        printf -- "${input:$cursor_offset:$ln}${dots}"
         move_cursor $y $(($x + $cursor))
         show_cursor
 
@@ -204,31 +233,59 @@ editor_prompt() {
         case "$key" in
             $'\e[D')
                 # left arrow
-                ((cursor > 0 )) && ((cursor--))
+                if ((cursor > 0 )); then
+                    ((cursor--))
+                else
+                    ((cursor_offset > 0)) && \
+                        ((cursor_offset--))
+                fi
                 ;;
             $'\e[C') # right arrow
-                ((cursor < ${#input} )) && ((cursor++))
+                if ((cursor + cursor_offset < ${#input} )); then
+                    if ((cursor >= input_width)); then
+                        ((cursor_offset++))
+                    else
+                        ((cursor++))
+                    fi
+
+                fi
                 ;;
             $'\ca'|$'\e[1~'|$'\e0H'|$'\e[H') # home
                 cursor=0
+                cursor_offset=0
+                ;;
+             $'\h'|$'\b') # ctrl+backspace
+                cursor=0
+                cursor_offset=0
+                input=""
                 ;;
             $'\ce'|$'\e[4~'|$'\e0F'|$'\e[F') # end
                 cursor=${#input}
-                ;;
-            $'\x7f'|$'\177') # backspace
-                if (( cursor > 0)); then
-                    r=$(($cursor - 1))
-                    input=${input:0:$r}${input:$cursor:${#input}}
-                    cursor=$r
+                cursor_offset=0
+                if (( ${#input} > input_width )); then
+                    cursor=$input_width
+                    cursor_offset=$((${#input} - $input_width))
                 fi
                 ;;
-            $'\h'|$'\b') # ctrl+backspace
-                input=
-                cursor=0
+            $'\x7f'|$'\177') # backspace
+                if (( position > 0)); then
+                    r=$(($position - 1))
+                    input=${input:0:$r}${input:$position:${#input}}
+                    if ((cursor > 0 )); then
+                        ((cursor--))
+                    else
+                        ((cursor_offset > 0)) && \
+                            ((cursor_offset--))
+                    fi
+                fi
                 ;;
             $'\e[3~') # delete
-                l=$(($cursor + 1))
-                input=${input:0:$cursor}${input:$l:${#input}}
+                l=$(($position + 1))
+                input=${input:0:$position}${input:$l:${#input}}
+                if (( cursor_offset > 0 )); then
+                    cursor=$(($cursor + 1))
+                    cursor_offset=$(($cursor_offset -1))
+                fi
                 ;;
             ''|$'\n')
                 break
@@ -239,8 +296,12 @@ editor_prompt() {
                 ;;
             *)
                 if ! [[ $key =~ [[:cntrl:]] ]]; then
-                    input=${input:0:$cursor}$key${input:$cursor:${#input}}
-                    cursor=$(($cursor + ${#key}))
+                    input=${input:0:$position}$key${input:$position:${#input}}
+                    if (( cursor < input_width )); then
+                        cursor=$(($cursor + ${#key}))
+                    else
+                        cursor_offset=$(($cursor_offset + ${#key}))
+                    fi
                 fi
                 ;;
         esac
@@ -258,7 +319,7 @@ start_selector() {
 
     local offset=1
     local lastoffset=0
-    local page_step=$(( $LINES - 3 ))
+    local page_step=$(( $ROWS - 3 ))
 
     local idx=1
     if [[ -n $preselected ]]; then
@@ -278,7 +339,7 @@ start_selector() {
         if $clear || [ $lastoffset != $offset ]; then
             hide_cursor
             clear_screen
-            print_status_line "${preselected}"
+            print_status_line "${PWD##*/}"
             clear=false
         fi
 
@@ -298,7 +359,8 @@ start_selector() {
                     is_selected=true
                 array_contains $idx ${marked[@]} && \
                     is_marked=true
-                print_option "$is_marked" "$is_selected" "$opt"
+                local shortopt=$(ellipsis " $opt " 2)
+                print_option "$is_marked" "$is_selected" "$shortopt"
             fi
             ((idx++))
         done
@@ -564,7 +626,7 @@ start_scanner() {
                     fi
                     preview=$(echo $preview | \
                         sed "s/%${s}/$substitution/g" | \
-                        fold -w ${COLUMNS} -s)
+                        fold -w ${COLS} -s)
                 fi
             done
         else
@@ -596,7 +658,7 @@ start_scanner() {
                 output=$(echo $filename | \
                     perl -ne "print if s|^${regexp}|${replacement}|")
                 [ -n "$output" ] && \
-                    preview=$(echo $output | fold -w ${COLUMNS} -s)
+                    preview=$(echo $output | fold -w ${COLS} -s)
             fi
         fi
 
@@ -698,7 +760,7 @@ start_editor() {
     local offset=1
     local lastoffset=0
 
-    local page_step=$(( $LINES - 3 ))
+    local page_step=$(( $ROWS - 3 ))
     local list_size=${#fieldorder[@]}
 
     local is_yanked=false
@@ -763,7 +825,8 @@ start_editor() {
                 fi
                 move_cursor $((3 - $offset + $idx))  # starting at 3nd row
                 printf " %-${max_field_length}s: " "$fieldname"
-                print_option "$is_unsaved" "$is_selected" "${newdata[$s]}"
+                local shortopt=$(ellipsis " ${newdata[$s]} " ${max_field_length})
+                print_option "$is_unsaved" "$is_selected" "$shortopt"
             fi
             ((idx++))
         done
@@ -773,7 +836,7 @@ start_editor() {
         read -sN1 -t 0.0001 k3
         key+=${k1}${k2}${k3}
         case "$key" in
-            k|$'\e[A')  # up arrow
+            k|$'\e[A')  # up
                 if (( selected > 1 )); then
                     ((selected--))
                     if (( selected < offset )); then
@@ -781,7 +844,7 @@ start_editor() {
                     fi
                 fi
                 ;;
-            j|$'\e[B')  # down arrow
+            j|$'\e[B')  # down
                 if (( selected < list_size )); then
                     ((selected++))
                     if (( selected > offset + max_items - 1 )); then
@@ -789,7 +852,7 @@ start_editor() {
                     fi
                 fi
                 ;;
-            $'\cb'|$'\e[5~')  # ctrl+b, page up
+            $'\cb'|$'\e[5~')  # page up
                 if (( selected - page_step > 1 )); then
                     ((selected-=page_step))
                     if (( selected < offset )); then
@@ -800,7 +863,7 @@ start_editor() {
                     offset=1
                 fi
                 ;;
-            $'\cf'|$'\e[6~')  # ctrl+f, page down
+            $'\cf'|$'\e[6~')  # page down
                 if (( selected + page_step < list_size )); then
                     ((selected+=page_step))
                     if (( selected > offset + max_items - 1 )); then
@@ -821,7 +884,7 @@ start_editor() {
                 ((offset=list_size - max_items + 1))
                 offset=$(( $offset > 1 ? $offset : 1 ))
                 ;;
-            i)
+            i)  # edit (cursor at start)
                 editor_prompt_output=""
                 editor_prompt false $(($selected - $offset + 3)) \
                     $max_field_length "${newdata[$field]}"
@@ -829,7 +892,7 @@ start_editor() {
                 hide_cursor
                 clear_line $(($selected - $offset + 3))
                 ;;
-            a|$'\n')
+            a|$'\n') # edit (cursor at end)
                 editor_prompt_output=""
                 editor_prompt true $(($selected - $offset + 3)) \
                     ${max_field_length} "${newdata[$field]}"
@@ -862,7 +925,25 @@ start_editor() {
                 else
                     erase_field "$field" "$@"
                 fi
-                clear_line $(($selected - $offset + 3))
+                clear_screen
+                print_status_line "$@"
+                local setopts=()
+                local delopts=()
+                if [[ -n "${newdata[$field]}" ]]; then
+                    setopts+=("--$field" "${newdata[$field]}")
+                else
+                    delopts+=("$field")
+                fi
+                echo
+                echo "      " "${setopts[@]}" ${delopts:+--delete-frames} \
+                    $(join_by "," "${delopts[@]}")
+		printf '   -> %s\n' "$@}"
+                mid3v2 "${setopts[@]}" ${delopts:+--delete-frames} \
+                    $(join_by "," "${delopts[@]}") "$1"
+                echo
+                echo " [Press enter...]"
+                clear=true
+                read
                 ;;
             s|w) # save
                 local setopts=()

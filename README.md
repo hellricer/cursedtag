@@ -6,8 +6,8 @@
   </p>
 
   <p align="center">
-        <a href="https://asciinema.org/a/qvNlrFrGB3xKZXb6GkremjZNp" target="_blank">
-          <img src="./screenshot.png" width="80%" alt="cursedtag in action"/>
+        <a href="https://asciinema.org/a/BI0FPOGc8Dz4KK4AHFCr0KTAc" target="_blank">
+            <img src="https://asciinema.org/a/BI0FPOGc8Dz4KK4AHFCr0KTAc.svg" width="80%" alt="cursedtag in action" />
         </a>
   </p>
 <br>
@@ -55,18 +55,18 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
 * Selector mode:
    - **space** - mark/unmark selected file
    - **ctrl-a** - mark/unmark all files
-   - **e, enter** - editor mode
    - **r** - rename files in scanner mode
    - **f** - fill tags in scanner mode
-   - **q, esc, ctrl-c** - quit
+   - **→, l, e, enter, esc** - go to tag editor
+   - **q, ctrl-c** - quit
 
 * Editor mode:
    - **enter, a** - edit field (cursor at end)
    - **i** - edit field (cursor at start)
-   - **s, w** - save changes
+   - **s, w** - save changes to current file
    - **S, W** - apply field to all marked files
    - **u** - undo changed field
-   - **esc** - go back to file selector
+   - **←, h, esc** - go file selector
    - **q, ctrl-c** - quit
 
 For moving around, you can use arrow keys, enter/escape, home/end, pgup/pgdown.
