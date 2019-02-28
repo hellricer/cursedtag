@@ -27,7 +27,6 @@
 * [Usage](#usage)
 * [Invocation](#invocation)
 * [Customization](#customization)
-* [Acknowledgements](acknowledgements)
 * [Why?](#why)
 
 
