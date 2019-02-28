@@ -422,11 +422,9 @@ start_selector() {
                 ;;
             a|A|$'\ca'|$'\x01')  # ctrl+a
                 ((select_all ^= 1))
-                if ((select_all == 1)); then
+                marked=()
+                ((select_all == 1)) && \
                     marked=( $(seq 1 $(($idx - 1))) )
-                else
-                    marked=()
-                fi
                 ;;
             ' '|$'\x09')  # tab
                 local found=false

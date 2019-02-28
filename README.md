@@ -6,19 +6,17 @@
   </p>
 
   <p align="center">
-        <a href="https://asciinema.org/a/BI0FPOGc8Dz4KK4AHFCr0KTAc" target="_blank">
-            <img src="https://asciinema.org/a/BI0FPOGc8Dz4KK4AHFCr0KTAc.svg" width="80%" alt="cursedtag in action" />
-        </a>
+        <a href="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY" target="_blank"><img src="https://asciinema.org/a/EE1zL5opMz7HcVaL1kYs7EyNY.svg" width="50%"/></a>
   </p>
 <br>
 
 - Works in terminal / console.
-- Tiny (written in *bash*, using few external utilities)
-- Inspired by [EasyTAG's](https://github.com/GNOME/easytag) features
+- Tiny (written in *bash*, using few external utilities).
+- Inspired by [EasyTAG's](https://github.com/GNOME/easytag) features.
   and [cursetag's](https://github.com/lotuskip/cursetag) look.
 - Can operate on multiple files:
-  - apply field to all selected files
-  - bulk rename files based on tags
+  - apply field to all selected files,
+  - bulk rename files based on tags,
   - fill tags from file names
 - Customizable.
 
@@ -39,9 +37,9 @@
 - `coreutils`
     - File operations.
 - `perl`
-    - Used for non-greedy regex capturing
+    - Used for non-greedy regex capturing.
 - `sox`
-    - For retrieving information about audio files (bitrate, duration, ...)
+    - For retrieving information about audio files (bitrate, duration, ...).
 - `mid3v2`
     - Program handling (*ID3 tags*).
 
