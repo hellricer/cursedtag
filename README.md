@@ -54,10 +54,10 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
 
 * Selector mode:
    - **space** - mark/unmark selected file
-   - **ctrl-a** - mark/unmark all files
+   - **a, ctrl-a** - mark/unmark all files
    - **r** - rename files in scanner mode
    - **f** - fill tags in scanner mode
-   - **→, l, e, enter, esc** - go to tag editor
+   - **→, enter, esc** - go to tag editor
    - **q, ctrl-c** - quit
 
 * Editor mode:
@@ -66,7 +66,7 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
    - **s, w** - save changes to current file
    - **S, W** - apply field to all marked files
    - **u** - undo changed field
-   - **←, h, esc** - go file selector
+   - **←, esc** - go file selector
    - **q, ctrl-c** - quit
 
 For moving around, you can use arrow keys, enter/escape, home/end, pgup/pgdown.

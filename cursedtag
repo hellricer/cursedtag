@@ -420,7 +420,7 @@ start_selector() {
                 ((offset=$# - max_items + 1))
                 offset=$(( $offset > 1 ? $offset : 1 ))
                 ;;
-            $'\ca'|$'\x01')  # ctrl+a
+            a|A|$'\ca'|$'\x01')  # ctrl+a
                 ((select_all ^= 1))
                 if ((select_all == 1)); then
                     marked=( $(seq 1 $(($idx - 1))) )
