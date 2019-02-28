@@ -12,8 +12,8 @@
 
 - Works in terminal / console.
 - Tiny (written in *bash*, using few external utilities).
-- Inspired by [EasyTAG's](https://github.com/GNOME/easytag) features.
-  and [cursetag's](https://github.com/lotuskip/cursetag) look.
+- Inspired by [EasyTAG's](https://github.com/GNOME/easytag) features
+  and [cursetag's](https://github.com/lotuskip/cursetag) look (and name).
 - Can operate on multiple files:
   - apply field to all selected files,
   - bulk rename files based on tags,
