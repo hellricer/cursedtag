@@ -151,7 +151,7 @@ join_by() {
 ellipsis() {
     local i=$1
     local n=$((${#i} + $2))
-    if [ ${n} -ge $COLS ]; then
+    if [[ ${n} -ge $COLS ]]; then
         len=$(($COLS))
         i=${i::$len}
         i="$i""…"
@@ -162,7 +162,7 @@ ellipsis() {
 print_status_line() {
     local others=""
     local files=$(($# - 1))
-    if [ $# -gt 1 ]; then
+    if [[ $# -gt 1 ]]; then
         others=" [and $files others]"
     fi
     move_cursor 0
@@ -336,7 +336,7 @@ start_selector() {
 
     local clear=false
     while true; do
-        if $clear || [ $lastoffset != $offset ]; then
+        if $clear || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
             print_status_line "${PWD##*/}"
@@ -355,7 +355,7 @@ start_selector() {
                 move_cursor $((2 - $offset + $idx))  # starting at 2nd row
                 local is_selected=false
                 local is_marked=false
-                [ $idx == $selected ] && \
+                [[ $idx == $selected ]] && \
                     is_selected=true
                 array_contains $idx ${marked[@]} && \
                     is_marked=true
@@ -496,14 +496,14 @@ bulk_rename() {
         if ! [[ $opt == $newname.mp3 ]]; then
             echo "   $opt"
             echo -n "-> $newname.mp3 :"
-            if [ -z "${newname// }" ]; then
+            if [[ -z "${newname// }" ]]; then
                 printf "%s empty file name. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
-            elif [ -f "$newname".mp3 ]; then
+            elif [[ -f "$newname".mp3 ]]; then
                 printf "%s file exists. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
             else
                 mkdir -p "$(dirname "$newname".mp3)"
                 mv -n "$opt" "$newname".mp3 &> /dev/null
-                if [ $? -ne 0 ]; then
+                if [[ $? -ne 0 ]]; then
                     printf "%s could not rename. \e[0m\n\n" \
                         $CURSEDTAG_COLOR_ERROR
                 else
@@ -531,7 +531,7 @@ fill_tags() {
             local tag=$(echo $line | grep -ao "^....")
             local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
             array_contains $tag "${fieldorder[@]}" && \
-                if ! [ -v "data[$tag]" ]; then
+                if ! [[ -v "data[$tag]" ]]; then
                     data[$tag]=$value
                 fi
         done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
@@ -572,10 +572,10 @@ fill_tags() {
             fi
             parent=$(dirname ${parent:-$PWD})
         done
-        if [ -n "$replacement" ]; then
+        if [[ -n "$replacement" ]]; then
             local output=$(echo $filename | \
                 perl -ne "print if s|^${regexp}$|${replacement}|")
-            if [ -n "$output" ]; then
+            if [[ -n "$output" ]]; then
                 echo "   $opt "
                 options=() # "--$tag" "$value")
                 while IFS= read -r -d '^' line; do
@@ -603,7 +603,7 @@ start_scanner() {
         local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
         if [[ -v "specifiers[$tag]" ]]; then
             local short=${specifiers[$tag]}
-            if ! [ -v "fields[$short]" ]; then
+            if ! [[ -v "fields[$short]" ]]; then
                 fields[$short]=${value}
             fi
         fi
@@ -633,7 +633,7 @@ start_scanner() {
                 if [[ $preview =~ .*%${s}.* ]]; then
                     local substitution=$(echo ${fields[$s]} |\
                         sed -e 's/&/\\&/g' -e 's;/;\\/;g')
-                    if [ -z $substitution ]; then
+                    if [[ -z $substitution ]]; then
                         substitution="[…]"
                     fi
                     preview=$(echo $preview | \
@@ -679,10 +679,10 @@ start_scanner() {
                 fi
                 parent=$(dirname ${parent:-$PWD})
             done
-            if [ -n "$replacement" ]; then
+            if [[ -n "$replacement" ]]; then
                 output=$(echo $filename | \
                     perl -ne "print if s|^${regexp}$|${replacement}|")
-                [ -n "$output" ] && \
+                [[ -n "$output" ]] && \
                     preview=$(echo $output | fold -w ${COLS} -s)
             fi
         fi
@@ -804,7 +804,7 @@ start_editor() {
         tag=$(echo $line | grep -ao "^....")
         value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
         array_contains $tag "${fieldorder[@]}" && \
-            if ! [ -v "data[$tag]" ]; then
+            if ! [[ -v "data[$tag]" ]]; then
                 data[$tag]=$value
                 newdata[$tag]=$value
             fi
@@ -813,7 +813,7 @@ start_editor() {
     # get widest field name to create nice grid
     local max_field_length=0
     for s in ${fieldorder[@]}; do
-        if [ ${#fieldmapping[$s]} -gt $max_field_length ]; then
+        if [[ ${#fieldmapping[$s]} -gt $max_field_length ]]; then
             local max_field_length=${#fieldmapping[$s]}
         fi
     done
@@ -825,7 +825,7 @@ start_editor() {
         local field=${fieldorder[$field_index]}
 
         # clear screen if the offset changed
-        if $clear || [ $lastoffset != $offset ]; then
+        if $clear || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
             print_status_line "$@"
@@ -846,7 +846,8 @@ start_editor() {
                 local fieldname=${fieldmapping[$s]}
                 local is_selected=false
                 local is_unsaved=false
-                [ $idx == $selected ] && is_selected=true
+                [[ $idx == $selected ]] && \
+                    is_selected=true
                 if ! [[ "${data[$s]}" == "${newdata[$s]}" ]]; then
                     is_unsaved=true
                 fi
@@ -947,7 +948,7 @@ start_editor() {
                 ;;
             S|W) # apply field to all files
                 data[$field]=${newdata[$field]}
-                if [ -n "${newdata[$field]}" ]; then
+                if [[ -n "${newdata[$field]}" ]]; then
                     set_field "$field" "${newdata[$field]}" "$@"
                 else
                     erase_field "$field" "$@"
@@ -985,7 +986,7 @@ start_editor() {
                         fi
                     fi
                 done
-                if [ ${#setopts} -gt 0 ] || [ ${#delopts} -gt 0 ]; then
+                if [[ ${#setopts} -gt 0 ]] || [[ ${#delopts} -gt 0 ]]; then
                     clear_screen
                     print_status_line "$@"
                     echo
@@ -1022,7 +1023,7 @@ clean_exit() {
 
 start_in_directory() {
     ls *.mp3 &> /dev/null
-    if [ $? -gt 0 ]; then
+    if [[ $? -gt 0 ]]; then
         echo >&2 "No mp3 files found."
         exit 1
     fi
@@ -1035,7 +1036,7 @@ start_in_directory() {
 
     while true; do
         ls *.mp3 &> /dev/null
-        if [ $? -gt 0 ]; then
+        if [[ $? -gt 0 ]]; then
             clean_exit 1 "No mp3 files found."
         fi
         local mp3s=(*.mp3)
@@ -1070,11 +1071,11 @@ start_in_editor() {
 }
 
 # main
-if [ -n "$1" ]; then
-    if ! [ -e "$1" ]; then
+if [[ -n "$1" ]]; then
+    if ! [[ -e "$1" ]]; then
         echo >&2 "File not found."
         exit 1
-    elif [ -d "$1" ]; then
+    elif [[ -d "$1" ]]; then
         builtin cd "$1"
         start_in_directory
     fi
