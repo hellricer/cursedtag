@@ -496,6 +496,7 @@ bulk_rename() {
         if ! [[ $opt == $newname.mp3 ]]; then
             echo "   $opt"
             echo -n "-> $newname.mp3 :"
+            newname=${newname/#~/$HOME}
             if [[ -z "${newname// }" ]]; then
                 printf "%s empty file name. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
             elif [[ -f "$newname".mp3 ]]; then
