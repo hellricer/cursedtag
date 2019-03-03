@@ -2,7 +2,7 @@
   <h3 align="center">cursedtag</h3>
 
   <p align="center">
-        A console audio tag editor.
+        A terminal-based audio tag editor.
   </p>
 
   <p align="center">
