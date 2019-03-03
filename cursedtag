@@ -2,18 +2,23 @@
 #
 # cursedtag - a terminal-based audio tag editor.
 
-# default field names. inspired by mpd naming
-: ${CURSEDTAG_FIELDS:="title artist albumartist album
-                date track genre comment composer performer"}
-: ${CURSEDTAG_DEFAULT_TEMPLATE:=}
+# read configuration file
+if [ -f "$HOME/.config/cursedtag/rc" ]; then
+    . "$HOME/.config/cursedtag/rc"
+fi
 
-# default colors
+# default configuration. You can just paste these lines
+# to the configuration file and customize.
 : ${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}
 : ${CURSEDTAG_COLOR_OPTION:=$'\e[34m'}
 : ${CURSEDTAG_COLOR_STATUS:=$'\e[33m'}
 : ${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}
 : ${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}
 : ${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}
+: ${CURSEDTAG_DEFAULT_TEMPLATE:=}
+: ${CURSEDTAG_FIELDS:="title artist albumartist album
+                date track genre comment composer performer"}
+
 
 # mapping of field ids to human readable labels
 declare -A fieldmapping

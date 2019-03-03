@@ -83,16 +83,14 @@ Few simple *vi*-like shortcuts are supported: *h/j/k/l*, *g* & *G*.
 
 ## Customization
 
-You can customize the program by setting following environment variables.
+You can customize the program by setting following environment variables:
 
 ```sh
-    # Space-separated list of tag field IDs
-    # See mid3v2 -f for all frames. Note that not all frames are supported.
+    # Space-separated list of tag field IDs.
     CURSEDTAG_FIELDS=…
 
     # Value of this variable will be inserted
     # into prompts of file rename & fill tags modes.
-    # For example "%n - %t"
     CURSEDTAG_DEFAULT_TEMPLATE=…
 
     # Override colors by assigning escape sequences into these variables.
@@ -102,6 +100,14 @@ You can customize the program by setting following environment variables.
     CURSEDTAG_COLOR_MARKED=…
     CURSEDTAG_COLOR_SUCCESS=…
     CURSEDTAG_COLOR_SELECTED=…
+```
+
+Program also sources `~/.config/cursedtag/rc` file, if it exists. Here's an example
+of one that doesn't override already set environment variables:
+```sh
+    : ${CURSEDTAG_DEFAULT_TEMPLATE:="%a - %n"}
+    : ${CURSEDTAG_FIELDS:="title album artist"}
+    : ${CURSEDTAG_COLOR_STATUS:=$'\e[35m'}
 ```
 
 
