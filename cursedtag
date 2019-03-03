@@ -563,9 +563,6 @@ bulk_rename() {
             fi
         fi
     done
-    echo
-    echo " [Press enter...]"
-    read
 }
 
 fill_tags() {
@@ -619,9 +616,6 @@ fill_tags() {
             fi
         fi
     done
-    echo
-    echo " [Press enter...]"
-    read
 }
 
 start_scanner() {
@@ -795,12 +789,16 @@ start_scanner() {
         fill_tags "$input" "$@"
     fi
 
+    echo
+    echo " [Press enter...]"
+    read
     return $returncode
 }
 
 read_data() {
     read_data_mid3v2 "$@"
     read_data_metaflac "$@"
+    read_data_vorbiscomment "$@"
 }
 
 read_data_mid3v2() {
@@ -816,7 +814,7 @@ read_data_mid3v2() {
             tag=$(echo $line | grep -ao "^....")
             value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
             if [[ -v mid3v2_mapping[$tag] ]]; then
-            local tagname="${mid3v2_mapping[$tag]}"
+                local tagname="${mid3v2_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
                     data[$tagname]=$value
                     data_state[$tagname]=$value
@@ -839,7 +837,7 @@ read_data_metaflac() {
             tag=$(echo $line | grep -ao "^[A-Z]*")
             value=$(echo $line | sed "s/[A-Z]*=//")
             if [[ -v metaflac_mapping[$tag] ]]; then
-            local tagname="${metaflac_mapping[$tag]}"
+                local tagname="${metaflac_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
                     data[$tagname]=$value
                     data_state[$tagname]=$value
@@ -850,9 +848,33 @@ read_data_metaflac() {
     fi
 }
 
+read_data_vorbiscomment() {
+    local extension="${1##*.}"
+    if [[ $extension == "ogg" ]]; then
+        data[size]=$(du -h -- "$1" | awk '{print $1}')
+        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        secs="${secs%%.*}"
+        data[length]=$(convert_time $secs)
+
+        while read line; do
+            tag=$(echo $line | grep -ao "^[A-Z]*")
+            value=$(echo $line | sed "s/[A-Z]*=//")
+            if [[ -v metaflac_mapping[$tag] ]]; then
+                local tagname="${metaflac_mapping[$tag]}"
+                if ! [[ -v "data[$tagname]" ]]; then
+                    data[$tagname]=$value
+                    data_state[$tagname]=$value
+                fi
+            fi
+        done <<< $(vorbiscomment -l -- "$1" | grep -ao "[A-Z]*=.*")
+    fi
+}
+
 set_field() {
     set_field_mid3v2 "$@"
     set_field_metaflac "$@"
+    set_field_vorbiscomment "$@"
 }
 
 set_field_mid3v2() {
@@ -899,6 +921,26 @@ set_field_metaflac() {
         echo metaflac "${options[@]}" -- "${files[@]}"
         metaflac "${options[@]}" -- "${files[@]}"
     fi
+}
+
+set_field_vorbiscomment() {
+    local field=$1; shift
+    local value=$1; shift
+
+    local tag=$(arrayindex $field metaflac_mapping)
+    options=("--tag" "$tag=$value")
+
+    local files=()
+    for opt; do
+        local extension="${opt##*.}"
+        if [[ $extension == "ogg" ]]; then
+            {
+                vorbiscomment "$opt" | grep -v "^$tag"
+                echo $tag="$value"
+            } | vorbiscomment -c - -w -- "$opt"
+            echo vorbiscomment -t "$field=$value" "$opt"
+        fi
+    done
 }
 
 start_editor() {
@@ -1054,18 +1096,30 @@ start_editor() {
                 clear_line $(($selected - $offset + 3))
                 ;;
             S|W) # apply field to all files
+                clear=true
+                clear_screen
+                print_status_line "$@"
                 data[$field]=${data_state[$field]}
                 set_field "$field" "${data_state[$field]}" "$@"
+                echo
+                echo " [Press enter...]"
+                read
                 ;;
             s|w) # save
+                clear=true
+                clear_screen
+                print_status_line "$@"
                 local setopts=()
                 local delopts=()
                 for n in "${!data_state[@]}"; do
                     if ! [[ "${data_state[$n]}" == "${data[$n]}" ]]; then
                         data[$n]=${data_state[$n]}
-                        set_field "$n" "${data_state[$n]}" "$@"
+                        set_field "$n" "${data_state[$n]}" "$1"
                     fi
                 done
+                echo
+                echo " [Press enter...]"
+                read
                 ;;
             h|$'\e[D'|$'\x1b')  # back to selector
                 return
@@ -1106,13 +1160,23 @@ start() {
     builtin cd "$path"
     while true; do
         local audio_files=()
-        while IFS=  read -r -d $'\0'; do
-        audio_files+=("$(basename -- "$REPLY")")
-        done < <(find -maxdepth 1 -type f \
-        \( -name "*.mp3" \
-        -o -name "*.flac" \) -print0)
+        # mp3 support check
+        [[ -x "$(command -v mid3v2)" ]] && while IFS=  read -r -d $'\0'; do
+            audio_files+=("$(basename -- "$REPLY")")
+        done < <(find -maxdepth 1 -type f -name "*.mp3" -print0)
+
+        # flac support check
+        [[ -x "$(command -v metaflac)" ]] && while IFS=  read -r -d $'\0'; do
+            audio_files+=("$(basename -- "$REPLY")")
+        done < <(find -maxdepth 1 -type f -name "*.flac" -print0)
+
+        # ogg support check
+        [[ -x "$(command -v ogginfo)" ]] && while IFS=  read -r -d $'\0'; do
+            audio_files+=("$(basename -- "$REPLY")")
+        done < <(find -maxdepth 1 -type f -name "*.ogg" -print0)
+
         (( ${#audio_files[@]} )) || \
-        clean_exit 1 "No mp3 files found."
+            clean_exit 1 "No supported audio files found."
         start_selector "${audio_files[@]}"
     done
 }
