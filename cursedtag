@@ -2,10 +2,10 @@
 #
 # cursedtag - a console ID3 tag editor.
 
-# default values (can be overriden)
+# default field names. inspired by mpd naming
+: ${CURSEDTAG_FIELDS:="title artist albumartist album
+                date track genre comment composer performer"}
 : ${CURSEDTAG_DEFAULT_TEMPLATE:=}
-: ${CURSEDTAG_FIELDS:="TIT2 TPE1 TPE2 TALB
-                TDRC TRCK TCON COMM TCOM TCOP TIT1"}
 
 # default colors
 : ${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}
@@ -15,38 +15,71 @@
 : ${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}
 : ${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}
 
-# mapping of frame ids used by mid3v2 to field labels.
+# mapping of field ids to human readable labels
 declare -A fieldmapping
 fieldmapping=(
-    [TIT2]="Title"
-    [TPE1]="Artist"
-    [TPE2]="Album artist"
-    [TALB]="Album"
-    [TDRC]="Year"
-    [TRCK]="Track"
-    [TCON]="Genre"
-    [TCOM]="Composer"
-    [COMM]="Comment"
-    [TOPE]="Original artist"
-    [TIT1]="Grouping"
-    [TCOP]="Copyright"
+    [title]="Title"
+    [artist]="Artist"
+    [albumartist]="Album artist"
+    [album]="Album"
+    [date]="Year"
+    [track]="Track"
+    [genre]="Genre"
+    [composer]="Composer"
+    [performer]="Performer"
+    [comment]="Comment"
 )
 
 declare -A specifiers
 specifiers=(
-    [TIT2]=t  # Title
-    [TPE1]=a  # Artist
-    [TPE2]=z  # Album artist
-    [TALB]=b  # Album
-    [TDRC]=y  # Year
-    [TRCK]=n  # Track
-    [TCON]=g  # Genre
-    [TCOM]=p  # Composer
-    [COMM]=c  # Comment
-    [TOPE]=o  # Original artist
-    [TIT1]=G  # Grouping
-    [TCOP]=r  # Copyright
+    [title]=t  # Title
+    [artist]=a  # Artist
+    [albumartist]=z  # Album artist
+    [album]=b  # Album
+    [date]=y  # Year
+    [track]=n  # Track
+    [genre]=g  # Genre
+    [comment]=c  # Comment
+    [composer]=p  # Composer
+    [performer]=P
 )
+
+
+declare -A mid3v2_mapping
+mid3v2_mapping=(
+    [TIT2]=title
+    [TPE1]=artist
+    [TPE2]=albumartist
+    [TALB]=album
+    [TDRC]=date
+    [TRCK]=track
+    [TCON]=genre
+    [TCOM]=composer
+    [COMM]=comment
+    [TPE3]=performer
+#    [TCOP]="Copyright"
+#    [TIT1]="Grouping"
+#    [TOPE]="TOPE"
+)
+
+declare -A metaflac_mapping
+metaflac_mapping=(
+    [TITLE]="title"
+    [ARTIST]="artist"
+    [ALBUMARTIST]="albumartist"
+    [ALBUM]="album"
+    [DATE]="date"
+    [TRACKNUMBER]="track"
+    [GENRE]="genre"
+    [COMPOSER]="composer"
+    [COMMENT]="comment"
+    [PERFORMER]="performer"
+#    [TCOP]="Copyright"
+#    [TIT1]="Grouping"
+#    [TOPE]="TOPE"
+)
+
+
 
 declare -a fieldorder
 fieldorder=(${CURSEDTAG_FIELDS//:/ })
@@ -144,6 +177,19 @@ strindex() {
     [[ "$x" = "$1" ]] && echo -1 || echo "${#x}"
 }
 
+arrayindex() {
+    local field=$1
+    local -n givenList=$2
+    local tag=
+    for i in "${!givenList[@]}"; do
+        if [[ ${givenList[$i]} == $field ]]; then
+            tag=$i
+            break
+        fi
+    done
+    echo $tag
+}
+
 join_by() {
     local IFS="$1"; shift; echo "$*";
 }
@@ -156,7 +202,7 @@ ellipsis() {
         i=${i::$len}
         i="$i""…"
     fi
-    printf "$i"
+    printf -- "$i"
 }
 
 print_status_line() {
@@ -472,9 +518,10 @@ start_selector() {
 bulk_rename() {
     local template=$1; shift
     for opt; do
+	local extension="${opt##*.}"
         local newname=$template
 
-        # read file
+        # read data
         declare -A fields
         while read line; do
             local tag=$(echo $line | grep -ao "^....")
@@ -482,7 +529,7 @@ bulk_rename() {
             if [[ -v "specifiers[$tag]" ]]; then
                 fields[${specifiers[$tag]}]=${value}
             fi
-        done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
+        done <<< $(mid3v2 -q -- "$opt" | grep -a "^....=" | tr '\0' '=')
 
         # replace specifiers with data
         for s in ${specifiers[@]}; do
@@ -493,30 +540,27 @@ bulk_rename() {
             fi
         done
 
-        if ! [[ $opt == $newname.mp3 ]]; then
-            echo "   $opt"
-            echo -n "-> $newname.mp3 :"
-            newname=${newname/#~/$HOME}
-            if [[ -z "${newname// }" ]]; then
-                printf "%s empty file name. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
-            elif [[ -f "$newname".mp3 ]]; then
-                printf "%s file exists. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
-            else
-                mkdir -p "$(dirname "$newname".mp3)"
-                mv -n "$opt" "$newname".mp3 &> /dev/null
-                if [[ $? -ne 0 ]]; then
-                    printf "%s could not rename. \e[0m\n\n" \
-                        $CURSEDTAG_COLOR_ERROR
-                else
-                    printf "%s renamed. \e[0m\n\n" $CURSEDTAG_COLOR_SUCCESS
-                    # FIXME: file is still not selected after rename
-                    preselected=$newname.mp3
-                    file_renamed=true
-                fi
-            fi
+        echo "   $opt"
+        echo -n "-> $newname.$extension :"
+        newname=${newname/#~/$HOME}  # tilde expansion
+        if [[ -z "${newname// }" ]]; then
+            printf "%s empty file name. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
+        elif [[ $opt == "$newname.$extension" ]]; then
+            echo -e "-> unchanged\n"
+        elif [[ -f "$newname.$extension" ]]; then
+            printf "%s file exists. \e[0m\n\n" $CURSEDTAG_COLOR_ERROR
         else
-            echo "   $opt"
-            echo -e "-> $opt : unchanged\n"
+            mkdir -p -- "$(dirname -- "$newname")"
+            mv -n -- "$opt" "$newname.$extension" &> /dev/null
+            if [[ $? -ne 0 ]]; then
+                printf "%s could not rename. \e[0m\n\n" \
+            	$CURSEDTAG_COLOR_ERROR
+            else
+                printf "%s renamed. \e[0m\n\n" $CURSEDTAG_COLOR_SUCCESS
+                # FIXME: file is still not selected after rename
+                preselected=$newname.$extension
+                file_renamed=true
+            fi
         fi
     done
     echo
@@ -535,7 +579,7 @@ fill_tags() {
                 if ! [[ -v "data[$tag]" ]]; then
                     data[$tag]=$value
                 fi
-        done <<< $(mid3v2 -q "$opt" | grep -a "^....=" | tr '\0' '=')
+        done <<< $(mid3v2 -q -- "$opt" | grep -a "^....=" | tr '\0' '=')
 
         local regexp="$(echo $template | \
                     sed -e 's,/,\\/,g ; s,|,\\|,g' \
@@ -561,17 +605,17 @@ fill_tags() {
         replacement=$(join_by "^" "${replacement[@]}")
         local parent_name=""
         local parent=""
-        local filename=$(basename "$opt" .mp3)
+	local filename="${opt%.*}"
         local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
         ((slashes > 0 )) && for i in $(seq 1 $slashes); do
-            parent_name="$(basename ${parent:-$PWD})"
+            parent_name="$(basename -- ${parent:-$PWD})"
             if ! [[ $parent_name == "/" ]]; then
                 filename=${parent_name}/${filename}
             else
                 filename=/$filename
                 break
             fi
-            parent=$(dirname ${parent:-$PWD})
+            parent=$(dirname -- ${parent:-$PWD})
         done
         if [[ -n "$replacement" ]]; then
             local output=$(echo $filename | \
@@ -583,7 +627,7 @@ fill_tags() {
                     options+=("--$line")
                 done <<< "${output}^"
                 echo -e "   -> "${options[@]}"\n"
-                mid3v2 "${options[@]}" "$opt"
+                mid3v2 "${options[@]}" -- "$opt"
             fi
         fi
     done
@@ -608,7 +652,7 @@ start_scanner() {
                 fields[$short]=${value}
             fi
         fi
-    done <<< $(mid3v2 -q "$1" | grep -a "^....=" | tr '\0' '=')
+    done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
 
     local legend=()
     for s in ${!specifiers[@]}; do
@@ -668,17 +712,17 @@ start_scanner() {
             replacement=$(join_by " " "${replacement[@]}")
             local parent_name=""
             local parent=""
-            local filename=$(basename $1 .mp3)
+	    local filename="${1%.*}"
             local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
             ((slashes > 0 )) && for i in $(seq 1 $slashes); do
-                parent_name="$(basename ${parent:-$PWD})"
+                parent_name="$(basename -- ${parent:-$PWD})"
                 if ! [[ $parent_name == "/" ]]; then
                     filename=${parent_name}/${filename}
                 else
                     filename=/$filename
                     break
                 fi
-                parent=$(dirname ${parent:-$PWD})
+                parent=$(dirname -- ${parent:-$PWD})
             done
             if [[ -n "$replacement" ]]; then
                 output=$(echo $filename | \
@@ -766,18 +810,53 @@ start_scanner() {
 }
 
 set_field() {
-    local tag=$1; shift
+    set_field_mid3v2 "$@"
+    set_field_metaflac "$@"
+}
+
+set_field_mid3v2() {
+    local field=$1; shift
     local value=$1; shift
-    if [[ $tag =~ ^[A-Z0-9]*$ ]]; then
-        local options=("--$tag" "$value")
-        mid3v2 "${options[@]}" "$@"
+
+    local tag=$(arrayindex $field mid3v2_mapping)
+    local options=("--delete-frames" "$tag")
+    if [[ -n "$value" ]]; then
+        options+=("--set-tag" "$tag=$value")
+    fi
+
+    local files=()
+    for opt; do
+        local extension="${opt##*.}"
+        if [[ $extension == "mp3" ]]; then
+            files+=("$opt")
+        fi
+    done
+    move_cursor 13 0
+    if (( ${#options[@]} )) && (( ${#files[@]} )); then
+        mid3v2 "${options[@]}" -- "${files[@]}"
     fi
 }
 
-erase_field() {
-    local tag=$1; shift
-    if [[ $tag =~ ^[A-Z0-9]*$ ]]; then
-        mid3v2 --delete-frames $tag "$@"
+set_field_metaflac() {
+    local field=$1; shift
+    local value=$1; shift
+
+    local tag=$(arrayindex $field metaflac_mapping)
+    local options=("--remove-tag" "$tag")
+    if [[ -n "$value" ]]; then
+        options+=("--set-tag" "$tag=$value")
+    fi
+
+    local files=()
+    for opt; do
+        local extension="${opt##*.}"
+        if [[ $extension == "flac" ]]; then
+            files+=("$opt")
+        fi
+    done
+    move_cursor 13 0
+    if (( ${#options[@]} )) && (( ${#files[@]} )); then
+        metaflac "${options[@]}" -- "${files[@]}"
     fi
 }
 
@@ -795,21 +874,23 @@ start_editor() {
     # read data
     declare -A data
     declare -A newdata
-    local secs=$(sox --i -D "$1" 2> /dev/null)
+    local secs=$(sox --i -D -- "$1" 2> /dev/null)
     secs="${secs%%.*}"
     data[length]=$(convert_time $secs)
-    data[size]=$(du -h "$1" | awk '{print $1}')
-    data[bitrate]=$(sox --i -B "$1" 2> /dev/null)
+    data[size]=$(du -h -- "$1" | awk '{print $1}')
+    data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
 
     while read line; do
         tag=$(echo $line | grep -ao "^....")
         value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-        array_contains $tag "${fieldorder[@]}" && \
-            if ! [[ -v "data[$tag]" ]]; then
-                data[$tag]=$value
-                newdata[$tag]=$value
+        [[ -v mid3v2_mapping[$tag] ]] && {
+	    local tagname="${mid3v2_mapping[$tag]}"
+            if ! [[ -v "data[$tagname]" ]]; then
+                data[$tagname]=$value
+                newdata[$tagname]=$value
             fi
-    done <<< $(mid3v2 -q "$1" | grep -a "^....=" | tr '\0' '=')
+	}
+    done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
 
     # get widest field name to create nice grid
     local max_field_length=0
@@ -949,30 +1030,7 @@ start_editor() {
                 ;;
             S|W) # apply field to all files
                 data[$field]=${newdata[$field]}
-                if [[ -n "${newdata[$field]}" ]]; then
-                    set_field "$field" "${newdata[$field]}" "$@"
-                else
-                    erase_field "$field" "$@"
-                fi
-                clear_screen
-                print_status_line "$@"
-                local setopts=()
-                local delopts=()
-                if [[ -n "${newdata[$field]}" ]]; then
-                    setopts+=("--$field" "${newdata[$field]}")
-                else
-                    delopts+=("$field")
-                fi
-                echo
-                echo "      " "${setopts[@]}" ${delopts:+--delete-frames} \
-                    $(join_by "," "${delopts[@]}")
-                printf '   -> %s\n' "$@}"
-                mid3v2 "${setopts[@]}" ${delopts:+--delete-frames} \
-                    $(join_by "," "${delopts[@]}") "$1"
-                echo
-                echo " [Press enter...]"
-                clear=true
-                read
+                set_field "$field" "${newdata[$field]}" "$@"
                 ;;
             s|w) # save
                 local setopts=()
@@ -980,27 +1038,9 @@ start_editor() {
                 for n in "${!newdata[@]}"; do
                     if ! [[ "${newdata[$n]}" == "${data[$n]}" ]]; then
                         data[$n]=${newdata[$n]}
-                        if [[ -n "${newdata[$n]}" ]]; then
-                            setopts+=("--$n" "${newdata[$n]}")
-                        else
-                            delopts+=("$n")
-                        fi
+                        set_field "$field" "${newdata[$field]}" "$@"
                     fi
                 done
-                if [[ ${#setopts} -gt 0 ]] || [[ ${#delopts} -gt 0 ]]; then
-                    clear_screen
-                    print_status_line "$@"
-                    echo
-                    echo "   $1"
-                    echo "   -> " "${setopts[@]}" ${delopts:+--delete-frames} \
-                        $(join_by "," "${delopts[@]}")
-                    echo
-                    mid3v2 "${setopts[@]}" ${delopts:+--delete-frames} \
-                        $(join_by "," "${delopts[@]}") "$1"
-                    echo " [Press enter...]"
-                    clear=true
-                    read
-                fi
                 ;;
             h|$'\e[D'|$'\x1b')  # back to selector
                 return
@@ -1022,65 +1062,45 @@ clean_exit() {
     exit $1
 }
 
-start_in_directory() {
-    ls *.mp3 &> /dev/null
-    if [[ $? -gt 0 ]]; then
-        echo >&2 "No mp3 files found."
-        exit 1
+start() {
+    local file=$1; shift
+    local path=$file
+
+    get_term_size
+    setup_terminal
+    trap 'get_term_size; ' WINCH
+    trap 'reset_terminal' EXIT
+
+    if [[ -f "$file" ]]; then
+    	preselected=$(basename -- "$file")
+	path=$(dirname -- "$file")
+        start_editor "$file"
+        clear
     fi
 
-    trap 'get_term_size; ' WINCH
-    trap 'reset_terminal' EXIT
-
-    get_term_size
-    setup_terminal
-
+    builtin cd "$path"
     while true; do
-        ls *.mp3 &> /dev/null
-        if [[ $? -gt 0 ]]; then
-            clean_exit 1 "No mp3 files found."
-        fi
-        local mp3s=(*.mp3)
-        preselected="${mp3s[0]}"
-        ls .*mp3 &> /dev/null && mp3s+=(.*mp3)
-        start_selector "${mp3s[@]}"
-    done
-}
-
-start_in_editor() {
-    open_file=$1; shift
-    preselected=$(basename "$open_file")
-
-    trap 'get_term_size; ' WINCH
-    trap 'reset_terminal' EXIT
-
-    get_term_size
-    setup_terminal
-
-    start_editor "$open_file"
-    clear
-
-    builtin cd "$(dirname "$open_file")"
-    while true; do
-        ls *.mp3 &> /dev/null || \
-            clean_exit 1 "No mp3 files found."
-        local mp3s=(*.mp3)
-        ls .*mp3 &> /dev/null && \
-            mp3s+=(.*mp3)
-        start_selector "${mp3s[@]}"
+        local audio_files=()
+        while IFS=  read -r -d $'\0'; do
+	    audio_files+=("$(basename -- "$REPLY")")
+        done < <(find -maxdepth 1 -type f \
+	    \( -name "*.mp3" \
+	    -o -name "*.mp4" \
+	    -o -name "*.ogg" \
+	    -o -name "*.flac" \) -print0)
+        (( ${#audio_files[@]} )) || \
+	    clean_exit 1 "No mp3 files found."
+        start_selector "${audio_files[@]}"
     done
 }
 
 # main
-if [[ -n "$1" ]]; then
-    if ! [[ -e "$1" ]]; then
+arg=${1:-"."}
+if [[ -n "$arg" ]]; then
+    if [[ -e "$arg" ]]; then
+    	start "$arg"
+    else
         echo >&2 "File not found."
         exit 1
-    elif [[ -d "$1" ]]; then
-        builtin cd "$1"
-        start_in_directory
     fi
-    start_in_editor "$1"
-else
-    start_in_directory
 fi
