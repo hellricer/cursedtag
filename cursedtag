@@ -627,7 +627,7 @@ start_scanner() {
     # read data
     data=()
     read_data "$1"
-    declare -A fields
+    declare -A fields=()
     for field in "${!data[@]}"; do
         if [[ -v "specifiers[$field]" ]]; then
             local specifier=${specifiers[$field]}
@@ -895,8 +895,9 @@ set_field_mid3v2() {
         fi
     done
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
-       echo  mid3v2 "${options[@]}" -- "${files[@]}"
-       mid3v2 "${options[@]}" -- "${files[@]}"
+        echo "mid3v2 "${options[@]}" -- \\"
+        printf '    %s \\\n' "${files[@]}"
+        mid3v2 "${options[@]}" -- "${files[@]}"
     fi
 }
 
@@ -918,7 +919,8 @@ set_field_metaflac() {
         fi
     done
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
-        echo metaflac "${options[@]}" -- "${files[@]}"
+        echo "metaflac "${options[@]}" -- \\"
+        printf '    %s \\\n' "${files[@]}"
         metaflac "${options[@]}" -- "${files[@]}"
     fi
 }
@@ -1002,8 +1004,8 @@ start_editor() {
                 fi
                 move_cursor $((3 - $offset + $idx))  # starting at 3nd row
                 printf " %-${max_field_length}s: " "$fieldname"
-                local short=$(ellipsis " ${data_state[$s]} " ${max_field_length})
-                print_option "$is_unsaved" "$is_selected" "$short"
+                local dots=$(ellipsis " ${data_state[$s]} " ${max_field_length})
+                print_option "$is_unsaved" "$is_selected" "$dots"
             fi
             ((idx++))
         done
