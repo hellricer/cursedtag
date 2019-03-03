@@ -544,26 +544,27 @@ bulk_rename() {
             fi
         done
 
-        echo "   $opt"
-        echo -n "-> $newname.$extension :"
+        printf '%s\n' "$opt"
+        printf ' -> %s.%s : ' "$newname" "$extension"
         newname=${newname/#~/$HOME}  # tilde expansion
         if [[ -z "${newname// }" ]]; then
-            printf '%s empty file name. \e[0m\n\n' $CURSEDTAG_COLOR_ERROR
+            printf '%s empty file name. \e[0m\n' $CURSEDTAG_COLOR_ERROR
         elif [[ $opt == "$newname.$extension" ]]; then
-            printf '-> unchanged\n'
+            printf 'unchanged.\n'
         elif [[ -f "$newname.$extension" ]]; then
-            printf '%s file exists. \e[0m\n\n' $CURSEDTAG_COLOR_ERROR
+            printf '%s file exists. \e[0m\n' $CURSEDTAG_COLOR_ERROR
         else
             mkdir -p -- "$(dirname -- "$newname")"
             if ! mv -n -- "$opt" "$newname.$extension" &> /dev/null; then
-                printf '%s could not rename. \e[0m\n\n' \
+                printf '%s could not rename. \e[0m\n' \
                 $CURSEDTAG_COLOR_ERROR
             else
-                printf '%s renamed. \e[0m\n\n' $CURSEDTAG_COLOR_SUCCESS
+                printf '%s renamed. \e[0m\n' $CURSEDTAG_COLOR_SUCCESS
                 preselected=$newname.$extension
                 file_renamed=true
             fi
         fi
+        printf '\n'
     done
 }
 
@@ -610,66 +611,16 @@ fill_tags() {
             output=$(echo $filename | \
                 perl -ne "print if s|^${regexp}$|${replacement_str}|")
             if [[ -n "$output" ]]; then
+                printf '%s\n' "$opt"
                 while IFS= read -r -d '^' line; do
                     local field=${line%=*}
                     local value=${line##*=}
                     local tag=$(arrayindex $field specifiers)
                     set_field "$field" "$value" "$opt"
+                    printf '    %s[%s]\e[0m = %s\n' "$CURSEDTAG_COLOR_OPTION" \
+                        "$field" "$value"
                 done <<< "${output}^"
-            fi
-        fi
-    done
-}
-
-fill_tagsxx() {
-    local template=$1; shift
-    for opt; do
-        local regexp="$(echo $template | \
-                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
-                    -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
-        local order_of_specifiers=()
-        for tag in "${!specifiers[@]}"; do
-            local specifier=${specifiers[$tag]}
-            if [[ $template =~ .*%${specifier}.* ]]; then
-                local x=$(strindex "$template" "%${specifier}")
-                regexp="$(echo $regexp | sed "s/%${specifier}/\(.*?\)/g")"
-                if (( x >= 0 )); then
-                    order_of_specifiers[$x]=$tag
-                fi
-            fi
-        done
-
-        local idx=1
-        local replacement=()
-        for tag in "${order_of_specifiers[@]}"; do
-            replacement+=("${tag}=\\${idx}")
-            ((idx++))
-        done
-        local parent_name=""
-        local parent=""
-        local filename="${opt%.*}"
-        local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
-        ((slashes > 0 )) && for i in $(seq 1 $slashes); do
-            parent_name="$(basename -- ${parent:-$PWD})"
-            if ! [[ $parent_name == "/" ]]; then
-                filename=${parent_name}/${filename}
-            else
-                filename=/$filename
-                break
-            fi
-            parent=$(dirname -- ${parent:-$PWD})
-        done
-        printf '%s\n' "${replacement[@]}"
-        if (( ${#replacement[@]} )); then
-            local replacement_str=$(join_by "^" "${replacement[@]}")
-            local output=$(echo $filename | \
-                perl -ne "print if s|^${regexp}$|${replacement_str}|")
-            if [[ -n "$output" ]]; then
-                while IFS= read -r -d '^' line; do
-                    local field=${line%=*}
-                    local value=${line##*=}
-                    set_field "$field" "$value" "$opt"
-                done <<< "${output}^"
+                printf '\n'
             fi
         fi
     done
@@ -950,8 +901,6 @@ set_field_mid3v2() {
         fi
     done
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
-        echo "mid3v2" "${options[@]}" "-- \\"
-        printf '    %s \\\n' "${files[@]}"
         mid3v2 "${options[@]}" -- "${files[@]}"
     fi
 }
@@ -974,8 +923,6 @@ set_field_metaflac() {
         fi
     done
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
-        echo "metaflac" "${options[@]}" "-- \\"
-        printf '    %s \\\n' "${files[@]}"
         metaflac "${options[@]}" -- "${files[@]}"
     fi
 }
@@ -995,7 +942,6 @@ set_field_vorbiscomment() {
                 vorbiscomment "$opt" | grep -v "^$tag"
                 echo $tag="$value"
             } | vorbiscomment -c - -w -- "$opt"
-            echo vorbiscomment -t "$field=$value" "$opt"
         fi
     done
 }
@@ -1157,8 +1103,13 @@ start_editor() {
                 clear=true
                 clear_screen
                 print_status_line "$@"
+                move_cursor 3 0
                 data[$field]=${data_state[$field]}
                 set_field "$field" "${data_state[$field]}" "$@"
+                printf '%s[%s]\e[0m = %s\n' "$CURSEDTAG_COLOR_OPTION" \
+                    "$field" "${data_state[$field]}"
+                printf '    %s\n' "${@}"
+                print
                 echo
                 echo " [Press enter...]"
                 read
@@ -1167,10 +1118,14 @@ start_editor() {
                 clear=true
                 clear_screen
                 print_status_line "$@"
+                move_cursor 3 0
+                printf '%s\n' "$1"
                 for n in "${!data_state[@]}"; do
                     if ! [[ "${data_state[$n]}" == "${data[$n]}" ]]; then
                         data[$n]=${data_state[$n]}
                         set_field "$n" "${data_state[$n]}" "$1"
+                        printf '    %s[%s]\e[0m = %s\n' \
+                            "$CURSEDTAG_COLOR_OPTION" "$n" "${data[$n]}"
                     fi
                 done
                 echo
