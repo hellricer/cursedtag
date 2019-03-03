@@ -2,7 +2,7 @@
   <h3 align="center">cursedtag</h3>
 
   <p align="center">
-        A console ID3 tag editor.
+        A console audio tag editor.
   </p>
 
   <p align="center">
@@ -12,13 +12,13 @@
 
 - Works in terminal / console.
 - Tiny (written in *bash*, using few external utilities).
+- Supports mp3, ogg & flac files.
 - Inspired by [EasyTAG's](https://github.com/GNOME/easytag) features
   and [cursetag's](https://github.com/lotuskip/cursetag) look (and name).
 - Can operate on multiple files:
   - apply field to all selected files,
   - bulk rename files based on tags,
   - fill tags from file names
-- Customizable.
 
 
 ## Table of Contents
@@ -40,7 +40,9 @@
 - `sox`
     - For retrieving information about audio files (bitrate, duration, ...).
 - `mid3v2`
-    - Program handling ID3 tags.
+- `metaflac`
+- `vorbiscomment`
+    - Optional. Programs for handling audio tags.
 
 All of these should be readily available in most distributions.
 
