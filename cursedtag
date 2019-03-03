@@ -25,26 +25,27 @@ fieldmapping=(
     [date]="Year"
     [track]="Track"
     [genre]="Genre"
+    [comment]="Comment"
     [composer]="Composer"
     [performer]="Performer"
-    [comment]="Comment"
 )
 
+# short specifiers used in scanner mode
 declare -A specifiers
 specifiers=(
-    [title]=t  # Title
-    [artist]=a  # Artist
-    [albumartist]=z  # Album artist
-    [album]=b  # Album
-    [date]=y  # Year
-    [track]=n  # Track
-    [genre]=g  # Genre
-    [comment]=c  # Comment
-    [composer]=p  # Composer
+    [title]=t
+    [artist]=a
+    [albumartist]=z
+    [album]=b
+    [date]=y
+    [track]=n
+    [genre]=g
+    [comment]=c
+    [composer]=p
     [performer]=P
 )
 
-
+# map fields to IDs used my mid3v2
 declare -A mid3v2_mapping
 mid3v2_mapping=(
     [TIT2]=title
@@ -54,14 +55,12 @@ mid3v2_mapping=(
     [TDRC]=date
     [TRCK]=track
     [TCON]=genre
-    [TCOM]=composer
     [COMM]=comment
+    [TCOM]=composer
     [TPE3]=performer
-#    [TCOP]="Copyright"
-#    [TIT1]="Grouping"
-#    [TOPE]="TOPE"
 )
 
+# map fields to IDs used my metaflac
 declare -A metaflac_mapping
 metaflac_mapping=(
     [TITLE]="title"
@@ -71,18 +70,17 @@ metaflac_mapping=(
     [DATE]="date"
     [TRACKNUMBER]="track"
     [GENRE]="genre"
-    [COMPOSER]="composer"
     [COMMENT]="comment"
+    [COMPOSER]="composer"
     [PERFORMER]="performer"
-#    [TCOP]="Copyright"
-#    [TIT1]="Grouping"
-#    [TOPE]="TOPE"
 )
-
-
 
 declare -a fieldorder
 fieldorder=(${CURSEDTAG_FIELDS//:/ })
+
+# global variables
+declare -A data
+declare -A data_state
 
 get_term_size() {
     # Get terminal size ('stty' is POSIX and always available).
@@ -518,18 +516,21 @@ start_selector() {
 bulk_rename() {
     local template=$1; shift
     for opt; do
-	local extension="${opt##*.}"
+        local extension="${opt##*.}"
         local newname=$template
 
         # read data
-        declare -A fields
-        while read line; do
-            local tag=$(echo $line | grep -ao "^....")
-            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-            if [[ -v "specifiers[$tag]" ]]; then
-                fields[${specifiers[$tag]}]=${value}
+        data=()
+        read_data "$opt"
+        declare -A fields=()
+        for field in "${!data[@]}"; do
+            if [[ -v "specifiers[$field]" ]]; then
+                local specifier=${specifiers[$field]}
+                if ! [[ -v "fields[$specifier]" ]]; then
+                    fields[$specifier]=${data[$field]}
+                fi
             fi
-        done <<< $(mid3v2 -q -- "$opt" | grep -a "^....=" | tr '\0' '=')
+        done
 
         # replace specifiers with data
         for s in ${specifiers[@]}; do
@@ -554,10 +555,9 @@ bulk_rename() {
             mv -n -- "$opt" "$newname.$extension" &> /dev/null
             if [[ $? -ne 0 ]]; then
                 printf "%s could not rename. \e[0m\n\n" \
-            	$CURSEDTAG_COLOR_ERROR
+                $CURSEDTAG_COLOR_ERROR
             else
                 printf "%s renamed. \e[0m\n\n" $CURSEDTAG_COLOR_SUCCESS
-                # FIXME: file is still not selected after rename
                 preselected=$newname.$extension
                 file_renamed=true
             fi
@@ -571,16 +571,6 @@ bulk_rename() {
 fill_tags() {
     local template=$1; shift
     for opt; do
-        declare -A data
-        while read line; do
-            local tag=$(echo $line | grep -ao "^....")
-            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-            array_contains $tag "${fieldorder[@]}" && \
-                if ! [[ -v "data[$tag]" ]]; then
-                    data[$tag]=$value
-                fi
-        done <<< $(mid3v2 -q -- "$opt" | grep -a "^....=" | tr '\0' '=')
-
         local regexp="$(echo $template | \
                     sed -e 's,/,\\/,g ; s,|,\\|,g' \
                     -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
@@ -605,7 +595,7 @@ fill_tags() {
         replacement=$(join_by "^" "${replacement[@]}")
         local parent_name=""
         local parent=""
-	local filename="${opt%.*}"
+        local filename="${opt%.*}"
         local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
         ((slashes > 0 )) && for i in $(seq 1 $slashes); do
             parent_name="$(basename -- ${parent:-$PWD})"
@@ -621,13 +611,11 @@ fill_tags() {
             local output=$(echo $filename | \
                 perl -ne "print if s|^${regexp}$|${replacement}|")
             if [[ -n "$output" ]]; then
-                echo "   $opt "
-                options=() # "--$tag" "$value")
                 while IFS= read -r -d '^' line; do
-                    options+=("--$line")
+                    local field=${line%=*}
+                    local value=${line##*=}
+                    set_field "$field" "$value" "$opt"
                 done <<< "${output}^"
-                echo -e "   -> "${options[@]}"\n"
-                mid3v2 "${options[@]}" -- "$opt"
             fi
         fi
     done
@@ -642,17 +630,18 @@ start_scanner() {
     local cursor=${#input}
     local preview=""
 
+    # read data
+    data=()
+    read_data "$1"
     declare -A fields
-    while read line; do
-        local tag=$(echo $line | grep -ao "^....")
-        local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-        if [[ -v "specifiers[$tag]" ]]; then
-            local short=${specifiers[$tag]}
-            if ! [[ -v "fields[$short]" ]]; then
-                fields[$short]=${value}
+    for field in "${!data[@]}"; do
+        if [[ -v "specifiers[$field]" ]]; then
+            local specifier=${specifiers[$field]}
+            if ! [[ -v "fields[$specifier]" ]]; then
+                fields[$specifier]=${data[$field]}
             fi
         fi
-    done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+    done
 
     local legend=()
     for s in ${!specifiers[@]}; do
@@ -712,7 +701,7 @@ start_scanner() {
             replacement=$(join_by " " "${replacement[@]}")
             local parent_name=""
             local parent=""
-	    local filename="${1%.*}"
+            local filename="${1%.*}"
             local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
             ((slashes > 0 )) && for i in $(seq 1 $slashes); do
                 parent_name="$(basename -- ${parent:-$PWD})"
@@ -809,6 +798,58 @@ start_scanner() {
     return $returncode
 }
 
+read_data() {
+    read_data_mid3v2 "$@"
+    read_data_metaflac "$@"
+}
+
+read_data_mid3v2() {
+    local extension="${1##*.}"
+    if [[ $extension == "mp3" ]]; then
+        data[size]=$(du -h -- "$1" | awk '{print $1}')
+        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        secs="${secs%%.*}"
+        data[length]=$(convert_time $secs)
+
+        while read line; do
+            tag=$(echo $line | grep -ao "^....")
+            value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+            if [[ -v mid3v2_mapping[$tag] ]]; then
+            local tagname="${mid3v2_mapping[$tag]}"
+                if ! [[ -v "data[$tagname]" ]]; then
+                    data[$tagname]=$value
+                    data_state[$tagname]=$value
+                fi
+            fi
+        done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+    fi
+}
+
+read_data_metaflac() {
+    local extension="${1##*.}"
+    if [[ $extension == "flac" ]]; then
+        data[size]=$(du -h -- "$1" | awk '{print $1}')
+        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        secs="${secs%%.*}"
+        data[length]=$(convert_time $secs)
+
+        while read line; do
+            tag=$(echo $line | grep -ao "^[A-Z]*")
+            value=$(echo $line | sed "s/[A-Z]*=//")
+            if [[ -v metaflac_mapping[$tag] ]]; then
+            local tagname="${metaflac_mapping[$tag]}"
+                if ! [[ -v "data[$tagname]" ]]; then
+                    data[$tagname]=$value
+                    data_state[$tagname]=$value
+                fi
+            fi
+        done <<< $(metaflac --list --except-block-type=PICTURE \
+            -- "$1" | grep -ao "[A-Z]*=.*")
+    fi
+}
+
 set_field() {
     set_field_mid3v2 "$@"
     set_field_metaflac "$@"
@@ -821,7 +862,7 @@ set_field_mid3v2() {
     local tag=$(arrayindex $field mid3v2_mapping)
     local options=("--delete-frames" "$tag")
     if [[ -n "$value" ]]; then
-        options+=("--set-tag" "$tag=$value")
+        options+=("--$tag" "$value")
     fi
 
     local files=()
@@ -831,9 +872,9 @@ set_field_mid3v2() {
             files+=("$opt")
         fi
     done
-    move_cursor 13 0
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
-        mid3v2 "${options[@]}" -- "${files[@]}"
+       echo  mid3v2 "${options[@]}" -- "${files[@]}"
+       mid3v2 "${options[@]}" -- "${files[@]}"
     fi
 }
 
@@ -854,8 +895,8 @@ set_field_metaflac() {
             files+=("$opt")
         fi
     done
-    move_cursor 13 0
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
+        echo metaflac "${options[@]}" -- "${files[@]}"
         metaflac "${options[@]}" -- "${files[@]}"
     fi
 }
@@ -872,25 +913,9 @@ start_editor() {
     local yanked=""
 
     # read data
-    declare -A data
-    declare -A newdata
-    local secs=$(sox --i -D -- "$1" 2> /dev/null)
-    secs="${secs%%.*}"
-    data[length]=$(convert_time $secs)
-    data[size]=$(du -h -- "$1" | awk '{print $1}')
-    data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
-
-    while read line; do
-        tag=$(echo $line | grep -ao "^....")
-        value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-        [[ -v mid3v2_mapping[$tag] ]] && {
-	    local tagname="${mid3v2_mapping[$tag]}"
-            if ! [[ -v "data[$tagname]" ]]; then
-                data[$tagname]=$value
-                newdata[$tagname]=$value
-            fi
-	}
-    done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+    data=()
+    data_state=()
+    read_data "$1"
 
     # get widest field name to create nice grid
     local max_field_length=0
@@ -930,12 +955,12 @@ start_editor() {
                 local is_unsaved=false
                 [[ $idx == $selected ]] && \
                     is_selected=true
-                if ! [[ "${data[$s]}" == "${newdata[$s]}" ]]; then
+                if ! [[ "${data[$s]}" == "${data_state[$s]}" ]]; then
                     is_unsaved=true
                 fi
                 move_cursor $((3 - $offset + $idx))  # starting at 3nd row
                 printf " %-${max_field_length}s: " "$fieldname"
-                local short=$(ellipsis " ${newdata[$s]} " ${max_field_length})
+                local short=$(ellipsis " ${data_state[$s]} " ${max_field_length})
                 print_option "$is_unsaved" "$is_selected" "$short"
             fi
             ((idx++))
@@ -997,48 +1022,48 @@ start_editor() {
             i)  # edit (cursor at start)
                 editor_prompt_output=""
                 editor_prompt false $(($selected - $offset + 3)) \
-                    $max_field_length "${newdata[$field]}"
-                newdata[$field]=$editor_prompt_output
+                    $max_field_length "${data_state[$field]}"
+                data_state[$field]=$editor_prompt_output
                 hide_cursor
                 clear_line $(($selected - $offset + 3))
                 ;;
             a|$'\n') # edit (cursor at end)
                 editor_prompt_output=""
                 editor_prompt true $(($selected - $offset + 3)) \
-                    ${max_field_length} "${newdata[$field]}"
-                newdata[$field]=$editor_prompt_output
+                    ${max_field_length} "${data_state[$field]}"
+                data_state[$field]=$editor_prompt_output
                 hide_cursor
                 clear_line $(($selected - $offset + 3))
                 ;;
             y)  # yank
-                yanked=${newdata[$field]}
+                yanked=${data_state[$field]}
                 is_yanked=true
                 ;;
             p)  # paste
                 if $is_yanked; then
-                    newdata[$field]=$yanked
+                    data_state[$field]=$yanked
                     clear_line $(($selected - $offset + 3))
                 fi
                 ;;
             x)  # erase
-                newdata[$field]=""
+                data_state[$field]=""
                 clear_line $(($selected - $offset + 3))
                 ;;
             u)  # undo
-                newdata[$field]=${data[$field]}
+                data_state[$field]=${data[$field]}
                 clear_line $(($selected - $offset + 3))
                 ;;
             S|W) # apply field to all files
-                data[$field]=${newdata[$field]}
-                set_field "$field" "${newdata[$field]}" "$@"
+                data[$field]=${data_state[$field]}
+                set_field "$field" "${data_state[$field]}" "$@"
                 ;;
             s|w) # save
                 local setopts=()
                 local delopts=()
-                for n in "${!newdata[@]}"; do
-                    if ! [[ "${newdata[$n]}" == "${data[$n]}" ]]; then
-                        data[$n]=${newdata[$n]}
-                        set_field "$field" "${newdata[$field]}" "$@"
+                for n in "${!data_state[@]}"; do
+                    if ! [[ "${data_state[$n]}" == "${data[$n]}" ]]; then
+                        data[$n]=${data_state[$n]}
+                        set_field "$n" "${data_state[$n]}" "$@"
                     fi
                 done
                 ;;
@@ -1072,8 +1097,8 @@ start() {
     trap 'reset_terminal' EXIT
 
     if [[ -f "$file" ]]; then
-    	preselected=$(basename -- "$file")
-	path=$(dirname -- "$file")
+        preselected=$(basename -- "$file")
+    path=$(dirname -- "$file")
         start_editor "$file"
         clear
     fi
@@ -1082,14 +1107,12 @@ start() {
     while true; do
         local audio_files=()
         while IFS=  read -r -d $'\0'; do
-	    audio_files+=("$(basename -- "$REPLY")")
+        audio_files+=("$(basename -- "$REPLY")")
         done < <(find -maxdepth 1 -type f \
-	    \( -name "*.mp3" \
-	    -o -name "*.mp4" \
-	    -o -name "*.ogg" \
-	    -o -name "*.flac" \) -print0)
+        \( -name "*.mp3" \
+        -o -name "*.flac" \) -print0)
         (( ${#audio_files[@]} )) || \
-	    clean_exit 1 "No mp3 files found."
+        clean_exit 1 "No mp3 files found."
         start_selector "${audio_files[@]}"
     done
 }
@@ -1098,7 +1121,7 @@ start() {
 arg=${1:-"."}
 if [[ -n "$arg" ]]; then
     if [[ -e "$arg" ]]; then
-    	start "$arg"
+        start "$arg"
     else
         echo >&2 "File not found."
         exit 1
