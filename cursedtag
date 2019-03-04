@@ -125,15 +125,7 @@ reset_terminal() {
 }
 
 clear_screen() {
-    # Only clear the scrolling window.
-    # '\e[%sH':    Move cursor to bottom of scroll area.
-    # '\e[9999C':  Move cursor to right edge of the terminal.
-    # '\e[1J':     Clear screen to top left corner (from cursor up).
-    # '\e[2J':     Clear the terminal.
-    # '\e[1;%sr':  Clearing the screen resets the scroll region(?). Re-set it.
-    #              Also sets cursor to (0,0).
-    printf '\e[%sH\e[9999C\e[1J\e[2J\e[1;%sr' \
-           "((ROWS - 2))" "$max_items"
+    printf '\e[2J'
 }
 
 clear_line() {
@@ -381,13 +373,13 @@ start_selector() {
         done
     fi
 
-    local clear=false
+    local clear_next=false
     while true; do
         if $clear || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
             print_status_line "${PWD##*/}"
-            clear=false
+            clear_next=false
         fi
 
         if $file_renamed; then
@@ -491,7 +483,7 @@ start_selector() {
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
                 start_editor "${!selected}" "${marked_strings[@]}"
-                clear=true
+                clear_next=true
                 ;;
             r)
                 local marked_strings=()
@@ -499,7 +491,7 @@ start_selector() {
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
                 start_scanner true "${!selected}" "${marked_strings[@]}"
-                clear=true
+                clear_next=true
                 ;;
             f)
                 local marked_strings=()
@@ -507,7 +499,7 @@ start_selector() {
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
                 start_scanner false "${!selected}" "${marked_strings[@]}"
-                clear=true
+                clear_next=true
                 ;;
             q|$'\x1b')
                 clean_exit
@@ -972,7 +964,7 @@ start_editor() {
     done
     ((max_field_length++))
 
-    local clear=false
+    local clear_next=false
     while true; do
         local field_index=$((selected - 1))
         local field=${fieldorder[$field_index]}
@@ -982,7 +974,7 @@ start_editor() {
             hide_cursor
             clear_screen
             print_status_line "$@"
-            clear=false
+            clear_next=false
             printf "bitrate: %s%-4s\e[0m  " \
                 "$CURSEDTAG_COLOR_OPTION" "${data[bitrate]}"
             printf "file size: %s%-4s\e[0m  "\
@@ -1100,7 +1092,7 @@ start_editor() {
                 clear_line $((selected - offset + 3))
                 ;;
             S|W) # apply field to all files
-                clear=true
+                clear_next=true
                 clear_screen
                 print_status_line "$@"
                 move_cursor 3 0
@@ -1115,7 +1107,7 @@ start_editor() {
                 read
                 ;;
             s|w) # save
-                clear=true
+                clear_next=true
                 clear_screen
                 print_status_line "$@"
                 move_cursor 3 0
