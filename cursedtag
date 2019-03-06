@@ -17,7 +17,7 @@ fi
 : ${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}
 : ${CURSEDTAG_DEFAULT_TEMPLATE:=}
 : ${CURSEDTAG_FIELDS:="title artist albumartist album
-                date track genre comment composer performer"}
+                date track tracktotal genre comment composer performer"}
 
 
 # mapping of field ids to human readable labels
@@ -33,6 +33,7 @@ fieldmapping=(
     [comment]="Comment"
     [composer]="Composer"
     [performer]="Performer"
+    [tracktotal]="Number of tracks"
 )
 
 # short specifiers used in scanner mode
@@ -48,6 +49,7 @@ specifiers=(
     [comment]=c
     [composer]=p
     [performer]=P
+    [tracktotal]=l
 )
 
 # map fields to IDs used my mid3v2
@@ -63,6 +65,7 @@ mid3v2_mapping=(
     [COMM]=comment
     [TCOM]=composer
     [TPE3]=performer
+    #[...]=tracktotal
 )
 
 # map fields to IDs used my metaflac & vorbiscomment
@@ -75,9 +78,10 @@ vorbis_mapping=(
     [DATE]=date
     [TRACKNUMBER]=track
     [GENRE]=genre
-    [COMMENT]=comment
+    [DESCRIPTION]=comment
     [COMPOSER]=composer
     [PERFORMER]=performer
+    [TRACKTOTAL]=tracktotal
 )
 
 declare -a fieldorder
@@ -526,6 +530,15 @@ bulk_rename() {
                 fi
             fi
         done
+        # work-around for mid3v2's lack of tracktotal field
+        if ! [[ -v "fields['l']" ]]; then
+            local track="${fields['n']}"
+            local x=$(strindex "$track" "/")
+            if (( x > 0 )); then
+                fields['n']=${track%\/*}
+                fields['l']=${track##*\/}
+            fi
+        fi
 
         # replace specifiers with data
         for s in "${specifiers[@]}"; do
@@ -626,6 +639,7 @@ start_scanner() {
 
     # read data
     data=()
+    data_state=()
     read_data "$1"
     declare -A fields=()
     for field in "${!data[@]}"; do
@@ -636,6 +650,15 @@ start_scanner() {
             fi
         fi
     done
+    # work-around for mid3v2's lack of tracktotal field
+    if ! [[ -v "fields['l']" ]]; then
+        local track="${fields['n']}"
+        local x=$(strindex "$track" "/")
+        if (( x > 0 )); then
+            fields['n']=${track%\/*}
+            fields['l']=${track##*\/}
+        fi
+    fi
 
     local legend=()
     for s in "${!specifiers[@]}"; do
@@ -809,8 +832,8 @@ read_data_mid3v2() {
         data[length]=$(convert_time $secs)
 
         while read line; do
-            tag=$(echo $line | grep -ao "^....")
-            value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
+            local tag=$(echo $line | grep -ao "^....")
+            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
             if [[ -v mid3v2_mapping[$tag] ]]; then
                 local tagname="${mid3v2_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
@@ -819,6 +842,15 @@ read_data_mid3v2() {
                 fi
             fi
         done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+
+        # split TRCK field into track and tracktotal
+        if [[ "${data['track']}" == */* ]]; then
+            local value=${data['track']}
+            data['track']=${value%%/*}
+            data['tracktotal']=${value##*/}
+            data_state['track']=${data['track']}
+            data_state['tracktotal']=${data['tracktotal']}
+        fi
     fi
 }
 
@@ -879,6 +911,15 @@ set_field_mid3v2() {
     local field=$1; shift
     local value=$1; shift
 
+    local is_track=false
+    local is_tracktotal=false
+    if [[ $field == "tracktotal" ]]; then
+        is_tracktotal=true
+    fi
+    if [[ $field == "track" ]]; then
+        is_track=true
+    fi
+
     local tag=$(arrayindex $field mid3v2_mapping)
     local options=("--delete-frames" "$tag")
     if [[ -n "$value" ]]; then
@@ -889,7 +930,28 @@ set_field_mid3v2() {
     for opt; do
         local extension="${opt##*.}"
         if [[ $extension == "mp3" ]]; then
-            files+=("$opt")
+            if $is_tracktotal; then
+                local track_field=$(mid3v2 -q -- "$opt" | sed -n 's/^TRCK=//p')
+                local track="${track_field%%/*}"
+                local new_value="${track}${value:+/}${value}"
+                if [[ -n "$new_value" ]]; then
+                    mid3v2 --TRCK "$new_value" -- "$opt"
+                else
+                    mid3v2 --delete-frames TRCK -- "$opt"
+                fi
+            elif $is_track; then
+                local track_field=$(mid3v2 -q -- "$opt" | sed -n 's/^TRCK=//p')
+                local tracktotal="${track_field##*/}"
+                local new_value="${value}${tracktotal:+/}${tracktotal}" 
+                if [[ -n "$new_value" ]]; then
+                    mid3v2 --TRCK "$new_value" -- "$opt"
+                else
+                    mid3v2 --delete-frames TRCK -- "$opt"
+                fi
+            else
+                files+=("$opt")
+            fi
+
         fi
     done
     if (( ${#options[@]} )) && (( ${#files[@]} )); then
@@ -943,6 +1005,7 @@ start_editor() {
     local offset=1
     local lastoffset=0
     local idx=1
+    local extension="${1##*.}"
 
     local page_step=$((ROWS - 3))
     local list_size=${#fieldorder[@]}
