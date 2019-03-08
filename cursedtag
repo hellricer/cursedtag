@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# cursedtag - a terminal-based audio tag editor.
+# cursedtag - a console audio tag editor.
 
 # read configuration file
 if [ -f "$HOME/.config/cursedtag/rc" ]; then
@@ -379,7 +379,7 @@ start_selector() {
 
     local clear_next=false
     while true; do
-        if $clear || [[ $lastoffset != $offset ]]; then
+        if $clear_next || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
             print_status_line "${PWD##*/}"
@@ -531,7 +531,7 @@ bulk_rename() {
             fi
         done
         # work-around for mid3v2's lack of tracktotal field
-        if ! [[ -v "fields['l']" ]]; then
+        if [[ $extension == "mp3" ]] && ! [[ -v "fields['l']" ]]; then
             local track="${fields['n']}"
             local x=$(strindex "$track" "/")
             if (( x > 0 )); then
@@ -1033,7 +1033,7 @@ start_editor() {
         local field=${fieldorder[$field_index]}
 
         # clear screen if the offset changed
-        if $clear || [[ $lastoffset != $offset ]]; then
+        if $clear_next || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
             print_status_line "$@"
