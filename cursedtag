@@ -158,6 +158,15 @@ array_contains() {
     false
 }
 
+basename() {
+    : "${1%/}"
+    printf '%s\n' "${_##*/}"
+}
+
+dirname() {
+    printf '%s\n' "${1%/*}"
+}
+
 convert_time() {
     local h=$(($1 / 3600))
     local h_remain=$(($1 & 3600))
@@ -466,8 +475,11 @@ start_selector() {
             a|A|$'\ca'|$'\x01')  # ctrl+a
                 ((select_all ^= 1))
                 marked=()
-                ((select_all == 1)) && \
-                    marked=( $(seq 1 $((idx - 1))) )
+                if ((select_all == 1)); then
+                    for ((i=1; i<idx; i++)); do
+                        marked+=($i)
+                    done
+                fi
                 ;;
             ' '|$'\x09')  # tab
                 local found=false
@@ -559,7 +571,7 @@ bulk_rename() {
         elif [[ -f "$newname.$extension" ]]; then
             printf '%s file exists. \e[0m\n' $CURSEDTAG_COLOR_ERROR
         else
-            mkdir -p -- "$(dirname -- "$newname")"
+            mkdir -p -- "$(dirname "$newname")"
             if ! mv -n -- "$opt" "$newname.$extension" &> /dev/null; then
                 printf '%s could not rename. \e[0m\n' \
                 $CURSEDTAG_COLOR_ERROR
@@ -600,16 +612,17 @@ fill_tags() {
         local parent_name=""
         local parent=""
         local filename="${opt%.*}"
-        local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
-        ((slashes > 0 )) && for i in $(seq 1 $slashes); do
-            parent_name="$(basename -- ${parent:-$PWD})"
+        local slashes="${regexp//[^\/]}"
+        local slashes_count=${#slashes}
+        ((slashes_count > 0 )) && for ((i=1; i<=slashes_count; i++)); do
+            parent_name="$(basename "${parent:-$PWD}")"
             if ! [[ $parent_name == "/" ]]; then
                 filename=${parent_name}/${filename}
             else
                 filename=/$filename
                 break
             fi
-            parent=$(dirname -- ${parent:-$PWD})
+            parent=$(dirname "${parent:-$PWD}")
         done
         if (( ${#replacement[@]} )); then
             local replacement_str=$(join_by "^" "${replacement[@]}")
@@ -717,16 +730,17 @@ start_scanner() {
             local parent_name=""
             local parent=""
             local filename="${1%.*}"
-            local slashes=$(echo $regexp | awk -F '/' '{print NF-1}')
-            ((slashes > 0 )) && for i in $(seq 1 $slashes); do
-                parent_name="$(basename -- ${parent:-$PWD})"
+            local slashes="${regexp//[^\/]}"
+            local slashes_count=${#slashes}
+            ((slashes_count > 0 )) && for ((i=1; i<=slashes_count; i++)); do
+                parent_name="$(basename "${parent:-$PWD}")"
                 if ! [[ $parent_name == "/" ]]; then
                     filename=${parent_name}/${filename}
                 else
                     filename=/$filename
                     break
                 fi
-                parent=$(dirname -- ${parent:-$PWD})
+                parent=$(dirname "${parent:-$PWD}")
             done
             if (( ${#replacement[@]} )); then
                 local replacement_str=$(join_by " " "${replacement[@]}")
@@ -1036,7 +1050,7 @@ start_editor() {
         if $clear_next || [[ $lastoffset != $offset ]]; then
             hide_cursor
             clear_screen
-            print_status_line "$@"
+            print_status_line "$(basename "$@")"
             clear_next=false
             printf "bitrate: %s%-4s\e[0m  " \
                 "$CURSEDTAG_COLOR_OPTION" "${data[bitrate]}"
@@ -1217,8 +1231,8 @@ start() {
     trap 'reset_terminal' EXIT
 
     if [[ -f "$file" ]]; then
-        preselected=$(basename -- "$file")
-    path=$(dirname -- "$file")
+        preselected=$(basename "$file")
+        path=$(dirname "$file")
         start_editor "$file"
         clear
     fi
@@ -1228,17 +1242,17 @@ start() {
         local audio_files=()
         # mp3 support check
         [[ -x "$(command -v mid3v2)" ]] && while IFS=  read -r -d $'\0'; do
-            audio_files+=("$(basename -- "$REPLY")")
+            audio_files+=("$(basename "$REPLY")")
         done < <(find -maxdepth 1 -type f -name "*.mp3" -print0)
 
         # flac support check
         [[ -x "$(command -v metaflac)" ]] && while IFS=  read -r -d $'\0'; do
-            audio_files+=("$(basename -- "$REPLY")")
+            audio_files+=("$(basename "$REPLY")")
         done < <(find -maxdepth 1 -type f -name "*.flac" -print0)
 
         # ogg support check
         [[ -x "$(command -v ogginfo)" ]] && while IFS=  read -r -d $'\0'; do
-            audio_files+=("$(basename -- "$REPLY")")
+            audio_files+=("$(basename "$REPLY")")
         done < <(find -maxdepth 1 -type f -name "*.ogg" -print0)
 
         (( ${#audio_files[@]} )) || \
