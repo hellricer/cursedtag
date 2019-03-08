@@ -1241,17 +1241,17 @@ start() {
         # mp3 support check
         [[ -x "$(command -v mid3v2)" ]] && while IFS=  read -r -d $'\0'; do
             audio_files+=("$(basename "$REPLY")")
-        done < <(find -maxdepth 1 -type f -name "*.mp3" -print0)
+        done < <(find . -maxdepth 1 -type f -name "*.mp3" -print0)
 
         # flac support check
         [[ -x "$(command -v metaflac)" ]] && while IFS=  read -r -d $'\0'; do
             audio_files+=("$(basename "$REPLY")")
-        done < <(find -maxdepth 1 -type f -name "*.flac" -print0)
+        done < <(find . -maxdepth 1 -type f -name "*.flac" -print0)
 
         # ogg support check
         [[ -x "$(command -v ogginfo)" ]] && while IFS=  read -r -d $'\0'; do
             audio_files+=("$(basename "$REPLY")")
-        done < <(find -maxdepth 1 -type f -name "*.ogg" -print0)
+        done < <(find . -maxdepth 1 -type f -name "*.ogg" -print0)
 
         (( ${#audio_files[@]} )) || \
             clean_exit 1 "No supported audio files found."
