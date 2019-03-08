@@ -133,11 +133,11 @@ clear_screen() {
 }
 
 clear_line() {
-    printf "\e[${1}H\r%-${COLS}s" " "
+    printf '\e[%s;%sH\e[0K' "$1" "${2:0}"
 }
 
 move_cursor() {
-    printf '\e[%s;%sH' "$1" "${2:-1}"
+    printf '\e[%s;%sH' "$1" "${2:0}"
 }
 
 show_cursor() {
@@ -220,7 +220,7 @@ print_status_line() {
     move_cursor 0
     status="${1}${others}"
     short=$(ellipsis "$status" 0)
-    printf '%s%s\e[0m\n' "${CURSEDTAG_COLOR_STATUS}" "$short"
+    printf '%s%s\e[0m\n' "$CURSEDTAG_COLOR_STATUS" "$short"
 }
 
 print_option() {
@@ -234,8 +234,7 @@ print_option() {
     if $2; then  # if selected
         option_color=$CURSEDTAG_COLOR_SELECTED
     fi
-    printf '%s%s%s%s' $mark_color "$mark_symbol" $option_color "$3"
-    printf '\e[0m'
+    printf '%s%s%s%s\e[0m' $mark_color "$mark_symbol" $option_color "$3"
 }
 
 editor_prompt() {
@@ -263,8 +262,7 @@ editor_prompt() {
 
         hide_cursor
         # erase input part of the field
-        move_cursor $y $((x - 1))
-        printf "%${field_width}s\r" " "
+        clear_line $y $((x - 1))
 
         move_cursor $y $x
         ln=$((input_width + 1))
@@ -565,18 +563,18 @@ bulk_rename() {
         printf ' -> %s.%s : ' "$newname" "$extension"
         newname=${newname/#~/$HOME}  # tilde expansion
         if [[ -z "${newname// }" ]]; then
-            printf '%s empty file name. \e[0m\n' $CURSEDTAG_COLOR_ERROR
+            printf '%s empty file name. \e[0m\n' "$CURSEDTAG_COLOR_ERROR"
         elif [[ $opt == "$newname.$extension" ]]; then
             printf 'unchanged.\n'
         elif [[ -f "$newname.$extension" ]]; then
-            printf '%s file exists. \e[0m\n' $CURSEDTAG_COLOR_ERROR
+            printf '%s file exists. \e[0m\n' "$CURSEDTAG_COLOR_ERROR"
         else
             mkdir -p -- "$(dirname "$newname")"
             if ! mv -n -- "$opt" "$newname.$extension" &> /dev/null; then
                 printf '%s could not rename. \e[0m\n' \
-                $CURSEDTAG_COLOR_ERROR
+                    "$CURSEDTAG_COLOR_ERROR"
             else
-                printf '%s renamed. \e[0m\n' $CURSEDTAG_COLOR_SUCCESS
+                printf '%s renamed. \e[0m\n' "$CURSEDTAG_COLOR_SUCCESS"
                 preselected=$newname.$extension
                 file_renamed=true
             fi
@@ -684,9 +682,9 @@ start_scanner() {
     print_status_line "$@"
 
     move_cursor 5
-    printf "Legend\n"
+    printf 'Legend\n'
     for n in "${sorted_legend[@]}"; do
-        printf "  %s\n" "$n"
+        printf '  %s\n' "$n"
     done
 
     while true; do
@@ -757,7 +755,7 @@ start_scanner() {
         clear_line 3
         clear_line 4
         move_cursor 2
-        printf " > %s\n" "$input"
+        printf ' > %s\n' "$input"
         printf '   \e[32m%s\e[0m\n\n' "$preview"
         move_cursor 2 $((4 + cursor))
         show_cursor
@@ -815,9 +813,9 @@ start_scanner() {
     # redraw the screen without legend
     clear_screen
     print_status_line "$@"
-    printf " > %s\n" "$input"
-    printf "   %s%s\e[0m\n" $CURSEDTAG_COLOR_SUCCESS "$preview"
-    printf "\n"
+    printf ' > %s\n' "$input"
+    printf '   %s%s\e[0m\n' "$CURSEDTAG_COLOR_SUCCESS" "$preview"
+    printf '\n'
 
     if $rename_mode; then
         bulk_rename "$input" "$@"
@@ -1052,11 +1050,11 @@ start_editor() {
             clear_screen
             print_status_line "$(basename "$@")"
             clear_next=false
-            printf "bitrate: %s%-4s\e[0m  " \
+            printf 'bitrate: %s%-4s\e[0m  ' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[bitrate]}"
-            printf "file size: %s%-4s\e[0m  "\
+            printf 'file size: %s%-4s\e[0m  '\
                 "$CURSEDTAG_COLOR_OPTION" "${data[size]}"
-            printf "length: %s%s\e[0m\n" \
+            printf 'length: %s%s\e[0m\n' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[length]}"
         fi
 
@@ -1074,8 +1072,8 @@ start_editor() {
                     is_unsaved=true
                 fi
                 move_cursor $((3 - offset + idx))  # starting at 3nd row
-                printf " %-${max_field_length}s: " "$fieldname"
-                local dots=$(ellipsis " ${data_state[$s]} " ${max_field_length})
+                printf ' %-*s %s:' "$max_field_length" "$fieldname"
+                local dots=$(ellipsis " ${data_state[$s]} " $max_field_length)
                 print_option "$is_unsaved" "$is_selected" "$dots"
             fi
             ((idx++))
