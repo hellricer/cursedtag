@@ -3,8 +3,8 @@
 # cursedtag - a console audio tag editor.
 
 # read configuration file
-if [ -f "$HOME/.config/cursedtag/rc" ]; then
-    . "$HOME/.config/cursedtag/rc"
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/cursedtag/rc" ]; then
+    . "${XDG_CONFIG_HOME:-$HOME/.config}/cursedtag/rc"
 fi
 
 # default configuration. You can just paste these lines
