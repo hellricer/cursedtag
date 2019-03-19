@@ -164,7 +164,7 @@ basename() {
 }
 
 dirname() {
-    printf '%s\n' "${1%/*}"
+    [[ $1 = */* ]] && printf '%s\n' "${1%/*}" || printf '.\n'
 }
 
 convert_time() {
@@ -954,7 +954,7 @@ set_field_mid3v2() {
             elif $is_track; then
                 local track_field=$(mid3v2 -q -- "$opt" | sed -n 's/^TRCK=//p')
                 local tracktotal="${track_field##*/}"
-                local new_value="${value}${tracktotal:+/}${tracktotal}" 
+                local new_value="${value}${tracktotal:+/}${tracktotal}"
                 if [[ -n "$new_value" ]]; then
                     mid3v2 --TRCK "$new_value" -- "$opt"
                 else
