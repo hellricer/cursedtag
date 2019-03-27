@@ -844,6 +844,7 @@ read_data_mid3v2() {
         local secs=$(sox --i -D -- "$1" 2> /dev/null)
         secs="${secs%%.*}"
         data[length]=$(convert_time $secs)
+        local tyer
 
         while read line; do
             local tag=$(echo $line | grep -ao "^....")
@@ -855,7 +856,16 @@ read_data_mid3v2() {
                     data_state[$tagname]=$value
                 fi
             fi
+            if [[ "$tag" == "TYER" ]]; then
+                tyer=$value
+            fi
         done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+
+        # use date from TYER, but only when TDRC is not set
+        if [[ -n "$tyer" ]] && ! [[ -v "data[date]" ]]; then
+            data['date']=$tyer
+            data_state['date']=$tyer
+        fi
 
         # split TRCK field into track and tracktotal
         if [[ "${data['track']}" == */* ]]; then
