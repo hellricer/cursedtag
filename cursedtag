@@ -386,9 +386,9 @@ start_selector() {
         done
     fi
 
-    local clear_next=false
+    local clear_next=true
     while true; do
-        if $clear_next || [[ $lastoffset != $offset ]]; then
+        if $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "${PWD##*/}"
@@ -404,7 +404,7 @@ start_selector() {
         lastoffset=$offset
         for opt; do
             if ((idx >= offset)) && ((idx < offset + max_items)); then
-                move_cursor $((2 - offset + idx))  # starting at 2nd row
+                clear_line $((2 - offset + idx))
                 local is_selected=false
                 local is_marked=false
                 [[ $idx == $selected ]] && \
@@ -1048,13 +1048,13 @@ start_editor() {
     done
     ((max_field_length++))
 
-    local clear_next=false
+    local clear_next=true
     while true; do
         local field_index=$((selected - 1))
         local field=${fieldorder[$field_index]}
 
         # clear screen if the offset changed
-        if $clear_next || [[ $lastoffset != $offset ]]; then
+        if $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "$(basename "$@")"
@@ -1080,7 +1080,7 @@ start_editor() {
                 if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
                     is_unsaved=true
                 fi
-                move_cursor $((3 - offset + idx))  # starting at 3nd row
+                clear_line $((3 - offset + idx))  # starting at 3nd row
                 printf ' %-*s %s:' "$max_field_length" "$fieldname"
                 local dots=$(ellipsis " ${data_state[$s]} " $max_field_length)
                 print_option "$is_unsaved" "$is_selected" "$dots"
