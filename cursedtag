@@ -1255,7 +1255,9 @@ start() {
 
         (( ${#audio_files[@]} )) || \
             clean_exit 1 "No supported audio files found."
-        start_selector "${audio_files[@]}"
+
+        IFS=$'\n' sorted=($(sort <<< "${audio_files[*]}"))
+        start_selector "${sorted[@]}"
     done
 }
 
