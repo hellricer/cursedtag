@@ -98,8 +98,8 @@ get_term_size() {
     # This can't be done reliably across all bash versions in pure bash.
     read -r ROWS COLS < <(stty size)
 
-    # Max items that fit in the scroll area (leaving first & last row empty)
-    max_items=$((${ROWS%% *} - 2))
+    # Max items that fit in the scroll area (leaving first row reserved for header)
+    max_items=$((${ROWS%% *} - 1))
 }
 
 setup_terminal() {
@@ -369,17 +369,17 @@ start_selector() {
 
     local marked=()
 
-    local offset=1
-    local lastoffset=0
+    local offset=0
+    local lastoffset=-1
     local page_step=$((ROWS - 3))
 
     local idx=1
     if [[ -n $preselected ]]; then
         for opt; do
-            if [[ $opt == $preselected ]]; then
+            if [[ $opt == "$preselected" ]]; then
                 selected=$idx
                 offset=$((idx - max_items + 1 ))
-                offset=$((offset > 1 ? offset : 1 ))
+                offset=$((offset > 0 ? offset : 0))
                 break
             fi
             ((idx++))
@@ -403,8 +403,8 @@ start_selector() {
         idx=1
         lastoffset=$offset
         for opt; do
-            if ((idx >= offset)) && ((idx < offset + max_items)); then
-                clear_line $((2 - offset + idx))
+            if ((idx > offset)) && ((idx < offset + max_items + 1)); then
+                clear_line $((1 - offset + idx))
                 local is_selected=false
                 local is_marked=false
                 [[ $idx == $selected ]] && \
@@ -425,52 +425,53 @@ start_selector() {
         key+=${k1}${k2}${k3}
         case "$key" in
             k|$'\e[A')  # up arrow
-                if (( selected > 1 )); then
+                if ((selected > 1)); then
                     ((selected--))
-                    if (( selected < offset )); then
+                    if ((selected <= offset)); then
                         ((offset--))
+                        offset=$((offset > 1 ? offset - 1 : 0))
                     fi
                 fi
                 ;;
             j|$'\e[B')  # down arrow
-                if (( selected < $# )); then
+                if ((selected < $#)); then
                     ((selected++))
-                    if (( selected > offset + max_items - 1 )); then
+                    if ((selected > offset + max_items)); then
                         ((offset++))
                     fi
                 fi
                 ;;
             $'\cb'|$'\e[5~')  # ctrl+b, page up
-                if (( selected - page_step > 1 )); then
+                if ((selected - page_step > 1)); then
                     ((selected-=page_step))
-                    if (( selected < offset )); then
-                        ((offset-=page_step))
+                    if ((selected <= offset)); then
+                        offset=$((offset - page_step > 0 ? offset - page_step : 0))
                     fi
                 else
                     selected=1
-                    offset=1
+                    offset=0
                 fi
                 ;;
             $'\cf'|$'\e[6~')  # ctrl+f, page down
-                if (( selected + page_step < $# )); then
+                if ((selected + page_step < $#)); then
                     ((selected+=page_step))
-                    if (( selected > offset + max_items - 1 )); then
-                        ((offset+=page_step))
+                    if ((selected > offset + max_items - 1)); then
+                        ((offset=selected - max_items))
                     fi
                 else
                     selected=$#
-                    ((offset=$# - max_items + 1))
-                    offset=$((offset > 1 ? offset : 1))
+                    ((offset=$# - max_items))
+                    offset=$((offset > 0 ? offset : 0))
                 fi
                 ;;
             g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
                 selected=1
-                offset=1
+                offset=0
                 ;;
             G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
                 selected=$#
-                ((offset=$# - max_items + 1))
-                offset=$((offset > 1 ? offset : 1))
+                ((offset=$# - max_items))
+                offset=$((offset > 0 ? offset : 0))
                 ;;
             a|A|$'\ca'|$'\x01')  # ctrl+a
                 ((select_all ^= 1))
@@ -1026,8 +1027,8 @@ set_field_vorbiscomment() {
 
 start_editor() {
     local selected=1
-    local offset=1
-    local lastoffset=0
+    local offset=0
+    local lastoffset=-1
     local idx=1
     local extension="${1##*.}"
 
@@ -1048,6 +1049,7 @@ start_editor() {
     done
     ((max_field_length++))
 
+    local number_prefix=1
     local clear_next=true
     while true; do
         local field_index=$((selected - 1))
@@ -1071,7 +1073,7 @@ start_editor() {
         idx=1
         lastoffset=$offset
         for s in "${fieldorder[@]}"; do
-            if ((idx >= offset)) && ((idx < offset + max_items)); then
+            if ((idx > offset)) && ((idx < offset + max_items)); then
                 local fieldname=${fieldmapping[$s]}
                 local is_selected=false
                 local is_unsaved=false
@@ -1080,7 +1082,7 @@ start_editor() {
                 if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
                     is_unsaved=true
                 fi
-                clear_line $((3 - offset + idx))  # starting at 3nd row
+                clear_line $((2 - offset + idx))  # starting at 3nd row
                 printf ' %-*s %s:' "$max_field_length" "$fieldname"
                 local dots=$(ellipsis " ${data_state[$s]} " $max_field_length)
                 print_option "$is_unsaved" "$is_selected" "$dots"
@@ -1093,69 +1095,81 @@ start_editor() {
         read -sN1 -t 0.0001 k3
         key+=${k1}${k2}${k3}
         case "$key" in
+            [2-9])
+                number_prefix=$key
+                ;;
             k|$'\e[A')  # up
-                if (( selected > 1 )); then
-                    ((selected--))
-                    if (( selected < offset )); then
-                        ((offset--))
-                    fi
-                fi
-                ;;
-            j|$'\e[B')  # down
-                if (( selected < list_size )); then
-                    ((selected++))
-                    if (( selected > offset + max_items - 1 )); then
-                        ((offset++))
-                    fi
-                fi
-                ;;
-            $'\cb'|$'\e[5~')  # page up
-                if (( selected - page_step > 1 )); then
-                    ((selected-=page_step))
-                    if (( selected < offset )); then
-                        ((offset-=page_step))
+                if ((selected - number_prefix > 1)); then
+                    ((selected-=number_prefix))
+                    if ((selected < offset + 1)); then
+                        offset=$((offset - number_prefix > 0 ? offset - number_prefix : 0))
                     fi
                 else
                     selected=1
-                    offset=1
+                    offset=0
                 fi
+                number_prefix=1
                 ;;
-            $'\cf'|$'\e[6~')  # page down
-                if (( selected + page_step < list_size )); then
-                    ((selected+=page_step))
-                    if (( selected > offset + max_items - 1 )); then
-                        ((offset+=page_step))
+            j|$'\e[B')  # down
+                if ((selected + number_prefix < list_size)); then
+                    ((selected+=number_prefix))
+                    if ((selected > offset + max_items - 1)); then
+                        ((offset=selected - max_items + 1))
                     fi
                 else
                     selected=$list_size
                     ((offset=list_size - max_items + 1))
-                    offset=$((offset > 1 ? offset : 1 ))
+                    offset=$((offset > 0 ? offset : 0))
+                fi
+                number_prefix=1
+                ;;
+            $'\cb'|$'\e[5~')  # page up
+                if ((selected - page_step > 1)); then
+                    ((selected-=page_step))
+                    if ((selected < offset + 1)); then
+                        offset=$((offset - page_step > 0 ? offset - page_step : 0))
+                    fi
+                else
+                    selected=1
+                    offset=0
+                fi
+                ;;
+            $'\cf'|$'\e[6~')  # page down
+                if ((selected + page_step < list_size)); then
+                    ((selected+=page_step))
+                    if ((selected > offset + max_items - 1)); then
+                        ((offset=selected - max_items + 1))
+                    fi
+                else
+                    selected=$list_size
+                    ((offset=list_size - max_items + 1))
+                    offset=$((offset > 0 ? offset : 0))
                 fi
                 ;;
             g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
                 selected=1
-                offset=1
+                offset=0
                 ;;
             G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
                 selected=$list_size
                 ((offset=list_size - max_items + 1))
-                offset=$((offset > 1 ? offset : 1 ))
+                offset=$((offset > 0 ? offset : 0))
                 ;;
             i)  # edit (cursor at start)
                 editor_prompt_output=""
-                editor_prompt false $((selected - offset + 3)) \
+                editor_prompt false $((selected - offset + 2)) \
                     $max_field_length "${data_state[$field]}"
                 data_state[$field]=$editor_prompt_output
                 hide_cursor
-                clear_line $((selected - offset + 3))
+                clear_line $((selected - offset + 2))
                 ;;
             a|$'\n') # edit (cursor at end)
                 editor_prompt_output=""
-                editor_prompt true $((selected - offset + 3)) \
+                editor_prompt true $((selected - offset + 2)) \
                     ${max_field_length} "${data_state[$field]}"
                 data_state[$field]=$editor_prompt_output
                 hide_cursor
-                clear_line $((selected - offset + 3))
+                clear_line $((selected - offset + 2))
                 ;;
             y)  # yank
                 yanked=${data_state[$field]}
@@ -1163,16 +1177,16 @@ start_editor() {
             p)  # paste
                 if [[ -v yanked ]]; then
                     data_state[$field]=$yanked
-                    clear_line $((selected - offset + 3))
+                    clear_line $((selected - offset + 2))
                 fi
                 ;;
             x)  # erase
                 data_state[$field]=""
-                clear_line $((selected - offset + 3))
+                clear_line $((selected - offset + 2))
                 ;;
             u)  # undo
                 data_state[$field]=${data[$field]}
-                clear_line $((selected - offset + 3))
+                clear_line $((selected - offset + 2))
                 ;;
             S|W) # apply field to all files
                 clear_next=true
