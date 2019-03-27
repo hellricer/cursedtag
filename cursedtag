@@ -90,6 +90,8 @@ fieldorder=(${CURSEDTAG_FIELDS//:/ })
 # global variables
 declare -A data
 declare -A data_state
+declare yanked
+
 
 get_term_size() {
     # Get terminal size ('stty' is POSIX and always available).
@@ -1022,9 +1024,6 @@ start_editor() {
     local page_step=$((ROWS - 3))
     local list_size=${#fieldorder[@]}
 
-    local is_yanked=false
-    local yanked=""
-
     # read data
     data=()
     data_state=()
@@ -1150,10 +1149,9 @@ start_editor() {
                 ;;
             y)  # yank
                 yanked=${data_state[$field]}
-                is_yanked=true
                 ;;
             p)  # paste
-                if $is_yanked; then
+                if [ -v yanked ]; then
                     data_state[$field]=$yanked
                     clear_line $((selected - offset + 3))
                 fi
