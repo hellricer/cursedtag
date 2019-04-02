@@ -203,14 +203,13 @@ join_by() {
     local IFS="$1"; shift; echo "$*";
 }
 
-ellipsis() {
+is_too_long() {
     local i=$1
     local n=$((${#i} + $2))
-    if [[ ${n} -ge $COLS ]]; then
-        i=${i::$COLS}
-        i="$i""…"
+    if (( n >= COLS )); then
+        return 0
     fi
-    printf -- '%s' "$i"
+    return 1
 }
 
 print_status_line() {
@@ -221,14 +220,17 @@ print_status_line() {
     fi
     move_cursor 0
     status="${1}${others}"
-    short=$(ellipsis "$status" 0)
-    printf '%s%s\e[0m\n' "$CURSEDTAG_COLOR_STATUS" "$short"
+    printf '%s%s\e[0m\e[K' "$CURSEDTAG_COLOR_STATUS" "$status"
+    if (( ${#status} >= COLS )); then
+        printf '…'
+    fi
 }
 
 print_option() {
     local option_color=$CURSEDTAG_COLOR_OPTION
     local mark_color=$CURSEDTAG_COLOR_MARKED
     local mark_symbol=" "
+    local opt=$4
     if $1; then  # if marked
         mark_symbol="*"
         option_color=$CURSEDTAG_COLOR_MARKED
@@ -236,7 +238,10 @@ print_option() {
     if $2; then  # if selected
         option_color=$CURSEDTAG_COLOR_SELECTED
     fi
-    printf '%s%s%s%s\e[0m' $mark_color "$mark_symbol" $option_color "$3"
+    printf '%s%s%s%s\e[0m\e[K' $mark_color "$mark_symbol" $option_color " $4 "
+    if $3; then  # if dots should be added
+        printf '…'
+    fi
 }
 
 editor_prompt() {
@@ -370,7 +375,6 @@ start_selector() {
     local marked=()
 
     local offset=0
-    local lastoffset=-1
     local page_step=$((ROWS - 3))
 
     local idx=1
@@ -401,18 +405,23 @@ start_selector() {
         fi
 
         idx=1
-        lastoffset=$offset
         for opt; do
             if ((idx > offset)) && ((idx < offset + max_items + 1)); then
-                clear_line $((1 - offset + idx))
                 local is_selected=false
                 local is_marked=false
+                local is_too_long=false
+
                 [[ $idx == $selected ]] && \
                     is_selected=true
                 array_contains $idx "${marked[@]}" && \
                     is_marked=true
-                local dots=$(ellipsis " $opt " 2)
-                print_option "$is_marked" "$is_selected" "$dots"
+
+                local n=$((${#opt} + 2))
+                if (( n >= COLS )); then
+                    is_too_long=true
+                fi
+                move_cursor $((1 - offset + idx))
+                print_option "$is_marked" "$is_selected" "$is_too_long" "$opt"
             fi
             ((idx++))
         done
@@ -424,16 +433,15 @@ start_selector() {
         read -sN1 -t 0.0001 k3
         key+=${k1}${k2}${k3}
         case "$key" in
-            k|$'\e[A')  # up arrow
+            k|$'\e[A')  # up arrow, k
                 if ((selected > 1)); then
                     ((selected--))
                     if ((selected <= offset)); then
-                        ((offset--))
                         offset=$((offset > 1 ? offset - 1 : 0))
                     fi
                 fi
                 ;;
-            j|$'\e[B')  # down arrow
+            j|$'\e[B')  # down arrow, j
                 if ((selected < $#)); then
                     ((selected++))
                     if ((selected > offset + max_items)); then
@@ -441,7 +449,7 @@ start_selector() {
                     fi
                 fi
                 ;;
-            $'\cb'|$'\e[5~')  # ctrl+b, page up
+            $'\cb'|$'\cu'|$'\e[5~')  # page up, ctrl+b, ctrl+u
                 if ((selected - page_step > 1)); then
                     ((selected-=page_step))
                     if ((selected <= offset)); then
@@ -452,7 +460,7 @@ start_selector() {
                     offset=0
                 fi
                 ;;
-            $'\cf'|$'\e[6~')  # ctrl+f, page down
+            $'\cf'|$'\cd'|$'\e[6~')  # page down, ctrl+f, ctrl+d
                 if ((selected + page_step < $#)); then
                     ((selected+=page_step))
                     if ((selected > offset + max_items - 1)); then
@@ -840,11 +848,11 @@ read_data() {
 read_data_mid3v2() {
     local extension="${1##*.}"
     if [[ $extension == "mp3" ]]; then
-        data[size]=$(du -h -- "$1" | awk '{print $1}')
-        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        data['size']=$(du -h -- "$1" | awk '{print $1}')
+        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
         local secs=$(sox --i -D -- "$1" 2> /dev/null)
         secs="${secs%%.*}"
-        data[length]=$(convert_time $secs)
+        data['length']=$(convert_time $secs)
         local tyer
 
         while read line; do
@@ -882,11 +890,11 @@ read_data_mid3v2() {
 read_data_metaflac() {
     local extension="${1##*.}"
     if [[ $extension == "flac" ]]; then
-        data[size]=$(du -h -- "$1" | awk '{print $1}')
-        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        data['size']=$(du -h -- "$1" | awk '{print $1}')
+        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
         local secs=$(sox --i -D -- "$1" 2> /dev/null)
         secs="${secs%%.*}"
-        data[length]=$(convert_time $secs)
+        data['length']=$(convert_time $secs)
 
         while read line; do
             tag=$(echo $line | grep -ao "^[A-Z]*")
@@ -906,11 +914,11 @@ read_data_metaflac() {
 read_data_vorbiscomment() {
     local extension="${1##*.}"
     if [[ $extension == "ogg" ]]; then
-        data[size]=$(du -h -- "$1" | awk '{print $1}')
-        data[bitrate]=$(sox --i -B -- "$1" 2> /dev/null)
+        data['size']=$(du -h -- "$1" | awk '{print $1}')
+        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
         local secs=$(sox --i -D -- "$1" 2> /dev/null)
         secs="${secs%%.*}"
-        data[length]=$(convert_time $secs)
+        data['length']=$(convert_time $secs)
 
         while read line; do
             tag=$(echo $line | grep -ao "^[A-Z]*")
@@ -1028,7 +1036,6 @@ set_field_vorbiscomment() {
 start_editor() {
     local selected=1
     local offset=0
-    local lastoffset=-1
     local idx=1
     local extension="${1##*.}"
 
@@ -1060,10 +1067,11 @@ start_editor() {
             hide_cursor
             clear_screen
             print_status_line "$(basename "$@")"
+            move_cursor 2
             clear_next=false
             printf 'bitrate: %s%-4s\e[0m  ' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[bitrate]}"
-            printf 'file size: %s%-4s\e[0m  '\
+            printf 'file size: %s%-4s\e[0m  ' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[size]}"
             printf 'length: %s%s\e[0m\n' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[length]}"
@@ -1071,21 +1079,27 @@ start_editor() {
 
         # print options
         idx=1
-        lastoffset=$offset
         for s in "${fieldorder[@]}"; do
             if ((idx > offset)) && ((idx < offset + max_items)); then
                 local fieldname=${fieldmapping[$s]}
                 local is_selected=false
                 local is_unsaved=false
+                local is_too_long=false
+
                 [[ $idx == $selected ]] && \
                     is_selected=true
                 if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
                     is_unsaved=true
                 fi
-                clear_line $((2 - offset + idx))  # starting at 3nd row
+
+                move_cursor $((2 - offset + idx))  # starting at 3nd row
                 printf ' %-*s %s:' "$max_field_length" "$fieldname"
-                local dots=$(ellipsis " ${data_state[$s]} " $max_field_length)
-                print_option "$is_unsaved" "$is_selected" "$dots"
+
+                local n=$((${#data_state[$s]} + max_field_length))
+                if (( n >= COLS )); then
+                    is_too_long=true
+                fi
+                print_option "$is_unsaved" "$is_selected" "$is_too_long" "${data_state[$s]}"
             fi
             ((idx++))
         done
