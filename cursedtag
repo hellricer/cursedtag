@@ -91,15 +91,17 @@ fieldorder=(${CURSEDTAG_FIELDS//:/ })
 declare -A data
 declare -A data_state
 declare yanked
-
+declare max_items
+declare max_columns
+declare resized
 
 get_term_size() {
-    # Get terminal size ('stty' is POSIX and always available).
-    # This can't be done reliably across all bash versions in pure bash.
-    read -r ROWS COLS < <(stty size)
+    eval `resize`
 
     # Max items that fit in the scroll area (leaving first row reserved for header)
-    max_items=$((${ROWS%% *} - 1))
+    max_items=$((${LINES%% *} - 1))
+    max_columns=$COLUMNS
+    resized=true
 }
 
 setup_terminal() {
@@ -206,7 +208,7 @@ join_by() {
 is_too_long() {
     local i=$1
     local n=$((${#i} + $2))
-    if (( n >= COLS )); then
+    if (( n >= max_columns )); then
         return 0
     fi
     return 1
@@ -221,7 +223,7 @@ print_status_line() {
     move_cursor 0
     status="${1}${others}"
     printf '%s%s\e[0m\e[K' "$CURSEDTAG_COLOR_STATUS" "$status"
-    if (( ${#status} >= COLS )); then
+    if (( ${#status} >= max_columns )); then
         printf '…'
     fi
 }
@@ -250,7 +252,7 @@ editor_prompt() {
     local x=$(($3 + 6))
     local input=$4
     local original=$input
-    local field_width=$((COLS - x + 1))
+    local field_width=$((max_columns - x + 1))
     local input_width=$((field_width - 1))
 
     local cursor=0
@@ -282,10 +284,11 @@ editor_prompt() {
         show_cursor
 
         # catch multi-char special key sequences
-        read -sN1 key
-        read -sN1 -t 0.0001 k1
-        read -sN1 -t 0.0001 k2
-        read -sN1 -t 0.0001 k3
+        key=
+        POSIXLY_CORRECT=1 read -sN1 key 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -375,7 +378,7 @@ start_selector() {
     local marked=()
 
     local offset=0
-    local page_step=$((ROWS - 3))
+    local page_step=$((LINES - 3))
 
     local idx=1
     if [[ -n $preselected ]]; then
@@ -392,11 +395,12 @@ start_selector() {
 
     local clear_next=true
     while true; do
-        if $clear_next; then
+        if $resized || $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "${PWD##*/}"
             clear_next=false
+            resized=false
         fi
 
         if $file_renamed; then
@@ -417,7 +421,7 @@ start_selector() {
                     is_marked=true
 
                 local n=$((${#opt} + 2))
-                if (( n >= COLS )); then
+                if (( n >= max_columns )); then
                     is_too_long=true
                 fi
                 move_cursor $((1 - offset + idx))
@@ -427,10 +431,11 @@ start_selector() {
         done
 
         # catch multi-char special key sequences
-        read -sN1 key
-        read -sN1 -t 0.0001 k1
-        read -sN1 -t 0.0001 k2
-        read -sN1 -t 0.0001 k3
+        key=
+        POSIXLY_CORRECT=1 read -sN1 key 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             k|$'\e[A')  # up arrow, k
@@ -581,7 +586,7 @@ bulk_rename() {
             printf '%s file exists. \e[0m\n' "$CURSEDTAG_COLOR_ERROR"
         else
             mkdir -p -- "$(dirname "$newname")"
-            if ! mv -n -- "$opt" "$newname.$extension" &> /dev/null; then
+            if ! mv -n -- "$opt" "$newname.$extension" 2>&-; then
                 printf '%s could not rename. \e[0m\n' \
                     "$CURSEDTAG_COLOR_ERROR"
             else
@@ -690,8 +695,6 @@ start_scanner() {
 
     hide_cursor
     clear_screen
-    print_status_line "$@"
-
     move_cursor 5
     printf 'Legend\n'
     for n in "${sorted_legend[@]}"; do
@@ -699,6 +702,7 @@ start_scanner() {
     done
 
     while true; do
+        print_status_line "$@"
         if $rename_mode; then
             preview=$input
             # replace specifiers with data
@@ -762,20 +766,20 @@ start_scanner() {
 
         # erase only lines that change to avoid too much clear_screen
         hide_cursor
-        clear_line 2
         clear_line 3
         clear_line 4
         move_cursor 2
-        printf ' > %s\n' "$input"
-        printf '   \e[32m%s\e[0m\n\n' "$preview"
+        printf ' > %s\e[K\n' "$input"
+        printf '   \e[32m%s\e[0m\e[K' "$preview"
         move_cursor 2 $((4 + cursor))
         show_cursor
 
         # catch multi-char special key sequences
-        read -sN1 key
-        read -sN1 -t 0.0001 k1
-        read -sN1 -t 0.0001 k2
-        read -sN1 -t 0.0001 k3
+        key=
+        POSIXLY_CORRECT=1 read -sN1 key 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -806,7 +810,7 @@ start_scanner() {
                 l=$((cursor + 1))
                 input=${input:0:$cursor}${input:$l:${#input}}
                 ;;
-            ''|$'\n')
+            $'\n')
                 break
                 ;;
             $'\x1b') # escape
@@ -824,8 +828,8 @@ start_scanner() {
     # redraw the screen without legend
     clear_screen
     print_status_line "$@"
-    printf ' > %s\n' "$input"
-    printf '   %s%s\e[0m\n' "$CURSEDTAG_COLOR_SUCCESS" "$preview"
+    printf ' > %s' "$input"
+    printf '   %s%s\e[0m' "$CURSEDTAG_COLOR_SUCCESS" "$preview"
     printf '\n'
 
     if $rename_mode; then
@@ -849,8 +853,8 @@ read_data_mid3v2() {
     local extension="${1##*.}"
     if [[ $extension == "mp3" ]]; then
         data['size']=$(du -h -- "$1" | awk '{print $1}')
-        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
-        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        data['bitrate']=$(sox --i -B -- "$1" 2>&-)
+        local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['length']=$(convert_time $secs)
         local tyer
@@ -891,8 +895,8 @@ read_data_metaflac() {
     local extension="${1##*.}"
     if [[ $extension == "flac" ]]; then
         data['size']=$(du -h -- "$1" | awk '{print $1}')
-        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
-        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        data['bitrate']=$(sox --i -B -- "$1" 2>&-)
+        local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['length']=$(convert_time $secs)
 
@@ -915,8 +919,8 @@ read_data_vorbiscomment() {
     local extension="${1##*.}"
     if [[ $extension == "ogg" ]]; then
         data['size']=$(du -h -- "$1" | awk '{print $1}')
-        data['bitrate']=$(sox --i -B -- "$1" 2> /dev/null)
-        local secs=$(sox --i -D -- "$1" 2> /dev/null)
+        data['bitrate']=$(sox --i -B -- "$1" 2>&-)
+        local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['length']=$(convert_time $secs)
 
@@ -1039,7 +1043,7 @@ start_editor() {
     local idx=1
     local extension="${1##*.}"
 
-    local page_step=$((ROWS - 3))
+    local page_step=$((LINES - 3))
     local list_size=${#fieldorder[@]}
 
     # read data
@@ -1063,12 +1067,13 @@ start_editor() {
         local field=${fieldorder[$field_index]}
 
         # clear screen if the offset changed
-        if $clear_next; then
+        if $resized || $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "$(basename "$@")"
             move_cursor 2
             clear_next=false
+            resized=false
             printf 'bitrate: %s%-4s\e[0m  ' \
                 "$CURSEDTAG_COLOR_OPTION" "${data[bitrate]}"
             printf 'file size: %s%-4s\e[0m  ' \
@@ -1095,18 +1100,21 @@ start_editor() {
                 move_cursor $((2 - offset + idx))  # starting at 3nd row
                 printf ' %-*s %s:' "$max_field_length" "$fieldname"
 
-                local n=$((${#data_state[$s]} + max_field_length))
-                if (( n >= COLS )); then
+                local n=$((${#data_state[$s]} + max_field_length + 5))
+                if (( n >= max_columns )); then
                     is_too_long=true
                 fi
                 print_option "$is_unsaved" "$is_selected" "$is_too_long" "${data_state[$s]}"
             fi
             ((idx++))
         done
-        read -sN1 key
-        read -sN1 -t 0.0001 k1
-        read -sN1 -t 0.0001 k2
-        read -sN1 -t 0.0001 k3
+
+        # catch multi-char special key sequences
+        key=
+        POSIXLY_CORRECT=1 read -sN1 key 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             [2-9])
@@ -1194,7 +1202,8 @@ start_editor() {
                     clear_line $((selected - offset + 2))
                 fi
                 ;;
-            x)  # erase
+            x|d) # erase
+                yanked=${data_state[$field]}
                 data_state[$field]=""
                 clear_line $((selected - offset + 2))
                 ;;
@@ -1261,7 +1270,7 @@ start() {
 
     get_term_size
     setup_terminal
-    trap 'get_term_size; ' WINCH
+    trap 'get_term_size' WINCH
     trap 'reset_terminal' EXIT
 
     if [[ -f "$file" ]]; then
