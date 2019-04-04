@@ -789,16 +789,19 @@ start_scanner() {
             local filename="${1%.*}"
             local slashes="${regexp//[^\/]}"
             local slashes_count=${#slashes}
-            ((slashes_count > 0 )) && for ((i=1; i<=slashes_count; i++)); do
-                parent_name="$(basename "${parent:-$PWD}")"
-                if ! [[ $parent_name == "/" ]]; then
-                    filename=${parent_name}/${filename}
-                else
-                    filename=/$filename
-                    break
-                fi
-                parent=$(dirname "${parent:-$PWD}")
-            done
+            if ((slashes_count > 0 )); then
+                for ((i=1; i<=slashes_count; i++)); do
+                    parent_name="$(basename "${parent:-$PWD}")"
+                    if ! [[ $parent_name == "/" ]]; then
+                        filename=${parent_name}/${filename}
+                    else
+                        filename=/$filename
+                        break
+                    fi
+                    parent=$(dirname "${parent:-$PWD}")
+                done
+                print_status_line "$filename"
+            fi
             if (( ${#replacement[@]} )); then
                 local replacement_str=$(join_by " " "${replacement[@]}")
                 output=$(echo "$filename" | \
