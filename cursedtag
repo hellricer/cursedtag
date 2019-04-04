@@ -600,7 +600,7 @@ bulk_rename() {
         for s in "${specifiers[@]}"; do
             if [[ $newname =~ %${s} ]]; then
                 local substitution=$(echo "${fields[$s]}" | \
-                    sed -e 's/&/\\&/g' -e 's;/;\\/;g')
+                    sed -e 's;/;\\/;g')
                 newname=${newname//%${s}/${substitution}}
             fi
         done
@@ -751,7 +751,7 @@ start_scanner() {
             for s in "${specifiers[@]}"; do
                 if [[ $preview =~ %${s} ]]; then
                     local substitution=$(echo "${fields[$s]}" |\
-                        sed -e 's/&/\\&/g' -e 's;/;\\/;g')
+                        sed -e 's;/;\\/;g')
                     if [[ -z $substitution ]]; then
                         substitution="[…]"
                     fi
