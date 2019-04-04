@@ -589,9 +589,9 @@ bulk_rename() {
         # align track numbers to the same width.
         # parse explicitely specified width (%3n -> 00n)
         if [[ $newname =~ %([1-9])n ]]; then
-            local width=${BASH_REMATCH[1]}
+            local number_width=${BASH_REMATCH[1]}
             newname=${template//%[1-9]n/%n}
-            fields['n']=$(zero_pad "${fields['n']}" "$width")
+            fields['n']=$(zero_pad "${fields['n']}" "$number_width")
         else
             fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
         fi
@@ -691,6 +691,7 @@ fill_tags() {
 start_scanner() {
     local rename_mode=$1; shift
     local number_of_files=$1; shift
+    local number_width=${#number_of_files}
     local input=${CURSEDTAG_DEFAULT_TEMPLATE}
     local cursor=${#input}
     local preview=""
@@ -718,7 +719,7 @@ start_scanner() {
         fi
     fi
     # align track numbers to the same width
-    fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
+    fields['n']=$(zero_pad "${fields['n']}" "$number_width")
 
     local legend=()
     for s in "${!specifiers[@]}"; do
@@ -742,10 +743,12 @@ start_scanner() {
         if $rename_mode; then
             preview=$input
             if [[ $preview =~ %([1-9])n ]]; then
-                local power=${BASH_REMATCH[1]}
-                number_of_files=$((10**(power - 1)))
+                number_width=${BASH_REMATCH[1]}
                 preview=${preview//%[1-9]n/%n}
-                fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
+                fields['n']=$(zero_pad "${fields['n']}" "$number_width")
+            else
+                # we need to reset, if it's deleted
+                number_width=${#number_of_files}
             fi
             # replace specifiers with data
             for s in "${specifiers[@]}"; do
@@ -874,7 +877,7 @@ start_scanner() {
     printf '\n'
 
     if $rename_mode; then
-        bulk_rename "$input" "$#" "$@"
+        bulk_rename "$input" "$((10**(number_width-1)))" "$@"
     else
         fill_tags "$input" "$@"
     fi
