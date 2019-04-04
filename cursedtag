@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2155
 #
 # cursedtag - a console audio tag editor.
 
@@ -9,16 +10,15 @@ fi
 
 # default configuration. You can just paste these lines
 # to the configuration file and customize.
-: ${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}
-: ${CURSEDTAG_COLOR_OPTION:=$'\e[34m'}
-: ${CURSEDTAG_COLOR_STATUS:=$'\e[33m'}
-: ${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}
-: ${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}
-: ${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}
-: ${CURSEDTAG_DEFAULT_TEMPLATE:=}
-: ${CURSEDTAG_FIELDS:="title artist albumartist album
-                date track tracktotal genre comment composer performer"}
-
+: "${CURSEDTAG_COLOR_ERROR:=$'\e[91m'}"
+: "${CURSEDTAG_COLOR_OPTION:=$'\e[34m'}"
+: "${CURSEDTAG_COLOR_STATUS:=$'\e[33m'}"
+: "${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}"
+: "${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}"
+: "${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}"
+: "${CURSEDTAG_DEFAULT_TEMPLATE:=}"
+: "${CURSEDTAG_FIELDS:="title artist albumartist album
+                date track tracktotal genre comment composer performer"}"
 
 # mapping of field ids to human readable labels
 declare -A fieldmapping
@@ -196,16 +196,16 @@ arrayindex() {
     local -n givenList=$2
     local tag=
     for i in "${!givenList[@]}"; do
-        if [[ ${givenList[$i]} == $field ]]; then
+        if [[ ${givenList[$i]} == "$field" ]]; then
             tag=$i
             break
         fi
     done
-    echo $tag
+    echo "$tag"
 }
 
 join_by() {
-    local IFS="$1"; shift; echo "$*";
+    local IFS="$1"; shift; echo "$*"
 }
 
 is_too_long() {
@@ -226,6 +226,12 @@ zero_pad() {
     else
         printf "%s\n" "$number"
     fi
+}
+
+wait_for_enter() {
+    echo
+    echo " [Press enter...]"
+    read -r
 }
 
 print_status_line() {
@@ -254,7 +260,7 @@ print_option() {
     if $2; then  # if selected
         option_color=$CURSEDTAG_COLOR_SELECTED
     fi
-    printf '%s%s%s%s\e[0m\e[K' $mark_color "$mark_symbol" $option_color " $4 "
+    printf '%s%s%s%s\e[0m\e[K' "$mark_color" "$mark_symbol" "$option_color" " $4 "
     if $3; then  # if dots should be added
         printf '…'
     fi
@@ -285,24 +291,24 @@ editor_prompt() {
 
         hide_cursor
         # erase input part of the field
-        clear_line $y $((x - 1))
+        clear_line "$y" $((x - 1))
 
-        move_cursor $y $x
+        move_cursor "$y" $x
         ln=$((input_width + 1))
         local dots=" "
         if (( cursor_offset + input_width < ${#input} )); then
             dots="…"
         fi
         printf -- '%s' "${input:$cursor_offset:$ln}${dots}"
-        move_cursor $y $((x + cursor))
+        move_cursor "$y" $((x + cursor))
         show_cursor
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -sN1 key 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
+        POSIXLY_CORRECT=1 read -srN1 key 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -429,7 +435,7 @@ start_selector() {
                 local is_marked=false
                 local is_too_long=false
 
-                [[ $idx == $selected ]] && \
+                [[ $idx == "$selected" ]] && \
                     is_selected=true
                 array_contains $idx "${marked[@]}" && \
                     is_marked=true
@@ -446,10 +452,10 @@ start_selector() {
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -sN1 key 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
+        POSIXLY_CORRECT=1 read -srN1 key 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             k|$'\e[A')  # up arrow, k
@@ -512,7 +518,7 @@ start_selector() {
             ' '|$'\x09')  # tab
                 local found=false
                 for i in "${!marked[@]}"; do
-                    if [[ ${marked[i]} == $selected ]]; then
+                    if [[ ${marked[i]} == "$selected" ]]; then
                         found=true
                         unset 'marked[i]'
                     fi
@@ -534,7 +540,7 @@ start_selector() {
                 for m in "${marked[@]}"; do
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
-                start_scanner true "${selected}" "$#" "${!selected}" "${marked_strings[@]}"
+                start_scanner true "$#" "${!selected}" "${marked_strings[@]}"
                 clear_next=true
                 ;;
             f)
@@ -542,7 +548,7 @@ start_selector() {
                 for m in "${marked[@]}"; do
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
-                start_scanner false "${selected}" "$#" "${!selected}" "${marked_strings[@]}"
+                start_scanner false "$#" "${!selected}" "${marked_strings[@]}"
                 clear_next=true
                 ;;
             q|$'\x1b')
@@ -585,9 +591,9 @@ bulk_rename() {
         if [[ $newname =~ %([1-9])n ]]; then
             local width=${BASH_REMATCH[1]}
             newname=${template//%[1-9]n/%n}
-            fields['n']="$(zero_pad ${fields['n']} $width)"
+            fields['n']=$(zero_pad "${fields['n']}" "$width")
         else
-            fields['n']="$(zero_pad ${fields['n']} ${#number_of_files})"
+            fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
         fi
 
         # replace specifiers with data
@@ -595,7 +601,7 @@ bulk_rename() {
             if [[ $newname =~ %${s} ]]; then
                 local substitution=$(echo "${fields[$s]}" | \
                     sed -e 's/&/\\&/g' -e 's;/;\\/;g')
-                newname=$(echo $newname | sed "s/%${s}/${substitution}/g")
+                newname=${newname//%${s}/${substitution}}
             fi
         done
 
@@ -626,15 +632,15 @@ bulk_rename() {
 fill_tags() {
     local input=$1; shift
     for opt; do
-        local regexp="$(echo $input | \
-                sed -e 's,/,\\/,g ; s,|,\\|,g' \
+        local regexp="$(echo "$input" | \
+                sed -e 's,/,\\/,g ; s,|,\\|,g ; s,\\,\\\\,g' \
                 -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
         local order_of_specifiers=()
         for tag in "${!specifiers[@]}"; do
             local specifier=${specifiers[$tag]}
             if [[ $input =~ .*%${specifier}.* ]]; then
                 local x=$(strindex "$input" "%${specifier}")
-                regexp="$(echo $regexp | sed "s/%${specifier}/\(.*?\)/g")"
+                regexp=${regexp//%${specifier}/\(.*?\)}
                 if (( x >= 0 )); then
                     order_of_specifiers[$x]=$tag
                 fi
@@ -664,14 +670,14 @@ fill_tags() {
         done
         if (( ${#replacement[@]} )); then
             local replacement_str=$(join_by "^" "${replacement[@]}")
-            output=$(echo $filename | \
+            output=$(echo "$filename" | \
                 perl -ne "print if s|^${regexp}$|${replacement_str}|")
             if [[ -n "$output" ]]; then
                 printf '%s\n' "$opt"
                 while IFS= read -r -d '^' line; do
                     local field=${line%=*}
                     local value=${line##*=}
-                    local tag=$(arrayindex $field specifiers)
+                    local tag=$(arrayindex "$field" specifiers)
                     set_field "$field" "$value" "$opt"
                     printf '    %s[%s]\e[0m = %s\n' "$CURSEDTAG_COLOR_OPTION" \
                         "$field" "$value"
@@ -684,7 +690,6 @@ fill_tags() {
 
 start_scanner() {
     local rename_mode=$1; shift
-    local place=$1; shift
     local number_of_files=$1; shift
     local input=${CURSEDTAG_DEFAULT_TEMPLATE}
     local cursor=${#input}
@@ -713,7 +718,7 @@ start_scanner() {
         fi
     fi
     # align track numbers to the same width
-    fields['n']="$(zero_pad ${fields['n']} ${#number_of_files})"
+    fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
 
     local legend=()
     for s in "${!specifiers[@]}"; do
@@ -736,35 +741,34 @@ start_scanner() {
         print_status_line "$@"
         if $rename_mode; then
             preview=$input
+            if [[ $preview =~ %([1-9])n ]]; then
+                local power=${BASH_REMATCH[1]}
+                number_of_files=$((10**(power - 1)))
+                preview=${preview//%[1-9]n/%n}
+                fields['n']=$(zero_pad "${fields['n']}" "${#number_of_files}")
+            fi
             # replace specifiers with data
             for s in "${specifiers[@]}"; do
-                if [[ $preview =~ %([1-9])n ]]; then
-                    local power=${BASH_REMATCH[1]}
-                    number_of_files=$((10**(power - 1)))
-                    preview=${preview//%[1-9]n/%n}
-                    fields['n']="$(zero_pad ${fields['n']} ${#number_of_files})"
-                fi
                 if [[ $preview =~ %${s} ]]; then
-                    local substitution=$(echo ${fields[$s]} |\
+                    local substitution=$(echo "${fields[$s]}" |\
                         sed -e 's/&/\\&/g' -e 's;/;\\/;g')
                     if [[ -z $substitution ]]; then
                         substitution="[…]"
                     fi
-                    preview=$(echo $preview | \
-                        sed "s/%${s}/${substitution}/g")
+                    preview=${preview//%${s}/${substitution}}
                 fi
             done
         else
             # parse filename according to template
             preview=""
-            local regexp="$(echo $input | \
-                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
+            local regexp="$(echo "$input" | \
+                    sed -e 's,/,\\/,g ; s,|,\\|,g ; s,\\,\\\\,g' \
                     -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
             local order=()
             for s in "${!specifiers[@]}"; do
                 if [[ ! $s =~ ^_ ]] && [[ $input =~ %${specifiers[$s]} ]]; then
                     local x=$(strindex "$input" "%${specifiers[$s]}")
-                    regexp="$(echo $regexp | sed "s/%${specifiers[$s]}/\(.*?\)/g")"
+                    regexp=${regexp//%${specifiers[$s]}/\(.*?\)}
                     if (( x >= 0 )); then
                         order[$x]=${specifiers[$s]}
                     fi
@@ -794,7 +798,7 @@ start_scanner() {
             done
             if (( ${#replacement[@]} )); then
                 local replacement_str=$(join_by " " "${replacement[@]}")
-                output=$(echo $filename | \
+                output=$(echo "$filename" | \
                     perl -ne "print if s|^${regexp}$|${replacement_str}|")
                 [[ -n "$output" ]] && \
                     preview=$output
@@ -813,10 +817,10 @@ start_scanner() {
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -sN1 key 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
+        POSIXLY_CORRECT=1 read -srN1 key 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -874,10 +878,7 @@ start_scanner() {
     else
         fill_tags "$input" "$@"
     fi
-
-    echo
-    echo " [Press enter...]"
-    read
+    wait_for_enter
 }
 
 read_data() {
@@ -894,13 +895,13 @@ read_data_mid3v2() {
         data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
         local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
-        data['_length']=$(convert_time $secs)
+        data['_length']=$(convert_time "$secs")
         local tyer
 
-        while read line; do
-            local tag=$(echo $line | grep -ao "^....")
-            local value=$(echo $line | sed "s/[^ ]*=\(.*\)$/\1/")
-            if [[ -v mid3v2_mapping[$tag] ]]; then
+        while read -r line; do
+            local tag=$(echo "$line" | grep -ao "^....")
+            local value=$(echo "$line" | sed "s/[^ ]*=\(.*\)$/\1/")
+            if [[ -v "mid3v2_mapping[$tag]" ]]; then
                 local tagname="${mid3v2_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
                     data[$tagname]=$value
@@ -910,7 +911,7 @@ read_data_mid3v2() {
             if [[ "$tag" == "TYER" ]]; then
                 tyer=$value
             fi
-        done <<< $(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')
+        done <<< "$(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')"
 
         # use date from TYER, but only when TDRC is not set
         if [[ -n "$tyer" ]] && ! [[ -v "data[date]" ]]; then
@@ -936,20 +937,20 @@ read_data_metaflac() {
         data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
         local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
-        data['_length']=$(convert_time $secs)
+        data['_length']=$(convert_time "$secs")
 
-        while read line; do
-            tag=$(echo $line | grep -ao "^[A-Z]*")
-            value=$(echo $line | sed "s/[A-Z]*=//")
-            if [[ -v vorbis_mapping[$tag] ]]; then
+        while read -r line; do
+            tag=$(echo "$line" | grep -ao "^[A-Z]*")
+            value=${line//[A-Z]*=/}
+            if [[ -v "vorbis_mapping[$tag]" ]]; then
                 local tagname="${vorbis_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
                     data[$tagname]=$value
                     data_state[$tagname]=$value
                 fi
             fi
-        done <<< $(metaflac --list --except-block-type=PICTURE \
-            -- "$1" | grep -ao "[A-Z]*=.*")
+        done <<< "$(metaflac --list --except-block-type=PICTURE \
+            -- "$1" | grep -ao "[A-Z]*=.*")"
     fi
 }
 
@@ -960,19 +961,19 @@ read_data_vorbiscomment() {
         data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
         local secs=$(sox --i -D -- "$1" 2>&-)
         secs="${secs%%.*}"
-        data['_length']=$(convert_time $secs)
+        data['_length']=$(convert_time "$secs")
 
-        while read line; do
-            tag=$(echo $line | grep -ao "^[A-Z]*")
-            value=$(echo $line | sed "s/[A-Z]*=//")
-            if [[ -v vorbis_mapping[$tag] ]]; then
+        while read -r line; do
+            tag=$(echo "$line" | grep -ao "^[A-Z]*")
+            value=${line//[A-Z]*=/}
+            if [[ -v "vorbis_mapping[$tag]" ]]; then
                 local tagname="${vorbis_mapping[$tag]}"
                 if ! [[ -v "data[$tagname]" ]]; then
                     data[$tagname]=$value
                     data_state[$tagname]=$value
                 fi
             fi
-        done <<< $(vorbiscomment -l -- "$1" | grep -ao "[A-Z]*=.*")
+        done <<< "$(vorbiscomment -l -- "$1" | grep -ao "[A-Z]*=.*")"
     fi
 }
 
@@ -995,7 +996,7 @@ set_field_mid3v2() {
         is_track=true
     fi
 
-    local tag=$(arrayindex $field mid3v2_mapping)
+    local tag=$(arrayindex "$field" mid3v2_mapping)
     local options=("--delete-frames" "$tag")
     if [[ -n "$value" ]]; then
         options+=("--$tag" "$value")
@@ -1038,7 +1039,7 @@ set_field_metaflac() {
     local field=$1; shift
     local value=$1; shift
 
-    local tag=$(arrayindex $field vorbis_mapping)
+    local tag=$(arrayindex "$field" vorbis_mapping)
     local options=("--remove-tag" "$tag")
     if [[ -n "$value" ]]; then
         options+=("--set-tag" "$tag=$value")
@@ -1060,7 +1061,7 @@ set_field_vorbiscomment() {
     local field=$1; shift
     local value=$1; shift
 
-    local tag=$(arrayindex $field vorbis_mapping)
+    local tag=$(arrayindex "$field" vorbis_mapping)
     options=("--tag" "$tag=$value")
 
     local files=()
@@ -1069,7 +1070,7 @@ set_field_vorbiscomment() {
         if [[ $extension == "ogg" ]]; then
             {
                 vorbiscomment "$opt" | grep -v "^$tag"
-                echo $tag="$value"
+                echo "$tag=$value"
             } | vorbiscomment -c - -w -- "$opt"
         fi
     done
@@ -1129,7 +1130,7 @@ start_editor() {
                 local is_unsaved=false
                 local is_too_long=false
 
-                [[ $idx == $selected ]] && \
+                [[ $idx == "$selected" ]] && \
                     is_selected=true
                 if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
                     is_unsaved=true
@@ -1149,10 +1150,10 @@ start_editor() {
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -sN1 key 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -sN1 -t 0.0001 k3 2>&-
+        POSIXLY_CORRECT=1 read -srN1 key 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             [2-9])
@@ -1260,9 +1261,7 @@ start_editor() {
                     "$field" "${data_state[$field]}"
                 printf '    %s\n' "${@}"
                 print
-                echo
-                echo " [Press enter...]"
-                read
+                wait_for_enter
                 ;;
             s|w) # save
                 clear_next=true
@@ -1278,9 +1277,7 @@ start_editor() {
                             "$CURSEDTAG_COLOR_OPTION" "$n" "${data[$n]}"
                     fi
                 done
-                echo
-                echo " [Press enter...]"
-                read
+                wait_for_enter
                 ;;
             h|$'\e[D'|$'\x1b')  # back to selector
                 return
@@ -1293,12 +1290,12 @@ start_editor() {
 }
 
 clean_exit() {
-    # ask for quit?
     reset_terminal
     show_cursor
     trap '' EXIT
     trap '' WINCH
-    echo >&2 $2
+    echo >&2 "$2"
+    # shellcheck disable=SC2086
     exit $1
 }
 
