@@ -633,7 +633,7 @@ fill_tags() {
     local input=$1; shift
     for opt; do
         local regexp="$(echo "$input" | \
-                sed -e 's,/,\\/,g ; s,|,\\|,g ; s,\\,\\\\,g' \
+                sed -e 's,/,\\/,g ; s,|,\\|,g' \
                 -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
         local order_of_specifiers=()
         for tag in "${!specifiers[@]}"; do
@@ -762,7 +762,7 @@ start_scanner() {
             # parse filename according to template
             preview=""
             local regexp="$(echo "$input" | \
-                    sed -e 's,/,\\/,g ; s,|,\\|,g ; s,\\,\\\\,g' \
+                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
                     -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
             local order=()
             for s in "${!specifiers[@]}"; do
