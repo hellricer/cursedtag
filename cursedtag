@@ -112,6 +112,7 @@ declare yanked
 declare max_items
 declare max_columns
 declare resized
+declare -a picked_images
 
 get_term_size() {
     eval "$(resize)"
@@ -409,13 +410,13 @@ editor_prompt() {
 
 
 start_selector() {
+    local image_mode=$1; shift
     local selected=1
     local select_all=0
-
-    local marked=()
-
     local offset=0
     local page_step=$((LINES - 3))
+    local marked=()
+    local selected_images=()
 
     local idx=1
     if [[ -n $preselected ]]; then
@@ -559,51 +560,94 @@ start_selector() {
                     fi
                 fi
                 ;;
-            e|l|$'\n'|$'\e[C') # enter, right arrow
-                if [[ -n ${!selected} ]]; then
-                    if [[ ${!selected} == */ ]]; then
-                        cd "${!selected}" && return
-                    else
-                        local marked_strings=()
-                        for m in "${marked[@]}"; do
-                            (( m != selected )) && marked_strings+=("${!m}")
-                        done
-                        start_editor "${!selected}" "${marked_strings[@]}"
+        esac
+        if ! $image_mode; then
+            case "$key" in
+                ''|e|l|$'\n'|$'\e[C') # enter, right arrow
+                    if [[ -n ${!selected} ]]; then
+                        if [[ ${!selected} == */ ]]; then
+                            cd "${!selected}" && return
+                        else
+                            local marked_strings=("${!selected}")
+                            for m in "${marked[@]}"; do
+                                (( m != selected )) && marked_strings+=("${!m}")
+                            done
+                            start_editor "${marked_strings[@]}"
+                            clear_next=true
+                        fi
+                    fi
+                    ;;
+                i) # i
+                    if [[ -n ${!selected} ]]; then
+                        if [[ ${!selected} == */ ]]; then
+                            cd "${!selected}" && return
+                        else
+                            local marked_strings=("${!selected}")
+                            for m in "${marked[@]}"; do
+                                (( m != selected )) && marked_strings+=("${!m}")
+                            done
+                            while true; do
+                                start_coverart_mgr "${marked_strings[@]}" && break
+                            done
+                            clear_next=true
+                        fi
+                    fi
+                    ;;
+                r)
+                    local marked_strings=()
+                    if [[ ${!selected} != */ ]]; then
+                        marked_strings+=("${!selected}")
+                    fi
+                    for m in "${marked[@]}"; do
+                        (( m != selected )) && marked_strings+=("${!m}")
+                    done
+                    if (( ${#marked_strings} > 0 )); then
+                        start_scanner true "$#" "${marked_strings[@]}"
                         clear_next=true
                     fi
-                fi
-                ;;
-            r)
-                local marked_strings=()
-                if [[ ${!selected} != */ ]]; then
-                    marked_strings+=("${!selected}")
-                fi
-                for m in "${marked[@]}"; do
-                    (( m != selected )) && marked_strings+=("${!m}")
-                done
-                if (( ${#marked_strings} > 0 )); then
-                    start_scanner true "$#" "${marked_strings[@]}"
-                    clear_next=true
-                fi
-                ;;
-            f)
-                local marked_strings=()
-                if [[ ${!selected} != */ ]]; then
-                    marked_strings+=("${!selected}")
-                fi
-                for m in "${marked[@]}"; do
-                    (( m != selected )) && marked_strings+=("${!m}")
-                done
-                if (( ${#marked_strings} > 0 )); then
-                    start_scanner false "$#" "${marked_strings[@]}"
-                    clear_next=true
-                fi
-                clear_next=true
-                ;;
-            q|$'\x1b')
-                clean_exit 0
-                ;;
-        esac
+                    ;;
+                f)
+                    local marked_strings=()
+                    if [[ ${!selected} != */ ]]; then
+                        marked_strings+=("${!selected}")
+                    fi
+                    for m in "${marked[@]}"; do
+                        (( m != selected )) && marked_strings+=("${!m}")
+                    done
+                    if (( ${#marked_strings} > 0 )); then
+                        start_scanner false "$#" "${marked_strings[@]}"
+                        clear_next=true
+                    fi
+                    ;;
+                q|$'\x1b')
+                    clean_exit
+                    ;;
+            esac
+        else
+            case "$key" in
+                e|l|$'\n'|$'\e[C') # enter, right arrow
+                    if [[ -n ${!selected} ]]; then
+                        if [[ ${!selected} == */ ]]; then
+                            cd "${!selected}" && return
+                        else
+                            local marked_strings=("$PWD/${!selected}")
+                            for m in "${marked[@]}"; do
+                                (( m != selected )) && marked_strings+=("$PWD/${!m}")
+                            done
+                            picked_images=("${marked_strings[@]}")
+                            clear_next=true
+                            return
+                        fi
+                    fi
+                    ;;
+                $'\x1b')
+                    return
+                    ;;
+                q)
+                    clean_exit
+                    ;;
+            esac
+        fi
     done
 }
 
@@ -1037,6 +1081,27 @@ read_data_vorbiscomment() {
     fi
 }
 
+read_imagedata() {
+    read_imagedata_mid3v2 "$1"
+    # after some investigation, it seems that it's gonna be pretty hard
+    # to parse some meaningful info from metaflac & vorbiscomment's outputs :(
+    #read_imagedata_metaflac "$1"
+    #read_imagedata_vorbiscomment "$1"
+}
+
+read_imagedata_mid3v2() {
+    local extension="${1##*.}"
+    local idx=1
+    if [[ $extension == "mp3" ]]; then
+        while read -r line; do
+            local value=$(echo "$line" | sed "s/[^ ]*=\(.*\)$/\1/")
+            data[$idx]=$value
+            data_state[$idx]=$value
+            ((idx++))
+        done <<< "$(mid3v2 -q -- "$1" | grep -a "^APIC=" | tr '\0' '=')"
+    fi
+}
+
 set_field() {
     set_field_mid3v2 "$@"
     set_field_metaflac "$@"
@@ -1352,6 +1417,192 @@ start_editor() {
     done
 }
 
+start_coverart_mgr() {
+    local selected=1
+    local offset=0
+    local idx=1
+    local extension="${1##*.}"
+
+    local page_step=$((LINES - 3))
+
+    # read data
+    data=()
+    data_state=()
+    read_imagedata "$1"
+
+    local number_prefix=1
+    local clear_next=true
+    while true; do
+        local field_index=$((selected - 1))
+        local field=${fieldorder[$field_index]}
+
+        # clear screen if the offset changed
+        if $resized || $clear_next; then
+            hide_cursor
+            clear_screen
+            print_status_line "$@"
+            move_cursor 2
+            clear_next=false
+            resized=false
+        fi
+
+        # print options
+        idx=1
+        for s in "${data[@]}"; do
+            if ((idx > offset)) && ((idx < offset + max_items)); then
+                local is_selected=false
+                local is_unsaved=false
+                local is_too_long=false
+
+                [[ $idx == "$selected" ]] && \
+                    is_selected=true
+                if ! [[ ${data[$idx]} == "${data_state[$idx]}" ]]; then
+                    is_unsaved=true
+                fi
+
+                move_cursor $((1 - offset + idx))  # starting at 2nd row
+                local n=$((${#data_state[$idx]} + 2))
+                if (( n >= max_columns )); then
+                    is_too_long=true
+                fi
+                if [[ -z ${data_state[$idx]} ]]; then
+                    print_option "$is_unsaved" "$is_selected" "$is_too_long" "(none)"
+                else
+                    print_option "$is_unsaved" "$is_selected" "$is_too_long" "${data_state[$idx]}"
+                fi
+            fi
+            ((idx++))
+        done
+        list_size=$((idx - 1))
+
+        # catch multi-char special key sequences
+        key=
+        POSIXLY_CORRECT=1 read -srN1 key 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
+        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
+        key+=${k1}${k2}${k3}
+        case "$key" in
+            k|$'\e[A')  # up
+                if ((selected - 1 > 1)); then
+                    ((selected-=1))
+                    if ((selected < offset + 1)); then
+                        offset=$((offset - 1 > 0 ? offset - number_prefix : 0))
+                    fi
+                else
+                    selected=1
+                    offset=0
+                fi
+                ;;
+            j|$'\e[B')  # down
+                if ((selected + 1 < list_size)); then
+                    ((selected+=1))
+                    if ((selected > offset + max_items - 1)); then
+                        ((offset=selected - max_items + 1))
+                    fi
+                else
+                    selected=$list_size
+                    ((offset=list_size - max_items + 1))
+                    offset=$((offset > 0 ? offset : 0))
+                fi
+                ;;
+            $'\cb'|$'\e[5~')  # page up
+                if ((selected - page_step > 1)); then
+                    ((selected-=page_step))
+                    if ((selected < offset + 1)); then
+                        offset=$((offset - page_step > 0 ? offset - page_step : 0))
+                    fi
+                else
+                    selected=1
+                    offset=0
+                fi
+                ;;
+            $'\cf'|$'\e[6~')  # page down
+                if ((selected + page_step < list_size)); then
+                    ((selected+=page_step))
+                    if ((selected > offset + max_items - 1)); then
+                        ((offset=selected - max_items + 1))
+                    fi
+                else
+                    selected=$list_size
+                    ((offset=list_size - max_items + 1))
+                    offset=$((offset > 0 ? offset : 0))
+                fi
+                ;;
+            g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
+                selected=1
+                offset=0
+                ;;
+            G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
+                selected=$list_size
+                ((offset=list_size - max_items + 1))
+                offset=$((offset > 0 ? offset : 0))
+                ;;
+            a)  # add
+                local dir=$PWD
+                while (( ${#picked_images} == 0 )); do
+                    local directories=()
+                    local images=()
+                    # directories
+                    while IFS=  read -r -d $'\0'; do
+                        directories+=("$(basename "$REPLY")/")
+                    done < <(find . -maxdepth 1 -type d -not -name '.*' -print0)
+                    # image files
+                    while IFS=  read -r -d $'\0'; do
+                        images+=("$(basename "$REPLY")")
+                    done < <(find . -maxdepth 1 -type f \
+                        \( -name "*.jpg" \
+                        -or -name "*.jpeg" \
+                        -or -name "*.png" \) \
+                        -print0)
+                    start_selector true "${directories[@]}" "${images[@]}"
+                    if [[ $? -ne 0 ]]; then
+                        clear_next=true
+                        break
+                    fi
+                done
+                cd "$dir"
+                local x=0
+                local pos=0
+                local data_size=${#data[@]}
+                for i in "${picked_images[@]}"; do
+                    pos=$((data_size + 1 + x))
+                    data[$pos]=""
+                    data_state[$pos]="add: $i"
+                    ((x++))
+                done
+                list_size=$((pos - 1))
+                picked_images=()
+                ;;
+            s)  # save (all fields for one file)
+                for i in "${!data_state[@]}"; do
+                    if [[ "${data_state[$i]}" == remove:* ]]; then
+                        # mid3v2 can only delete all images at once..
+                        mid3v2 --delete-frames=APIC -- "$1"
+                    elif [[ "${data_state[$i]}" == add:* ]]; then
+                        mid3v2 -p "${data_state[$i]#add: }:$(basename "${data_state[$i]#add: }")" -- "$1"
+                    fi
+                done
+                wait_for_key
+                return 1
+                ;;
+            x|d|$'\e[3~') # erase
+                for x in "${!data_state[@]}"; do
+                    if [[ -n ${data[$x]} ]]; then
+                        data_state[$x]="remove: ${data[$x]}"
+                    fi
+                done
+                ;;
+            h|$'\e[D'|$'\x1b')  # back to selector
+                return
+                ;;
+            q) # quit
+                clean_exit
+                ;;
+        esac
+    done
+}
+
 clean_exit() {
     reset_terminal
     show_cursor
@@ -1407,7 +1658,7 @@ start() {
 
         IFS=$'\n' sorted_dirs=($(sort <<< "${directories[*]}"))
         IFS=$'\n' sorted=($(sort <<< "${audio_files[*]}"))
-        start_selector "${sorted_dirs[@]}" "${sorted[@]}"
+        start_selector false "${sorted_dirs[@]}" "${sorted[@]}"
     done
 }
 
