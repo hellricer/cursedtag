@@ -418,7 +418,7 @@ start_selector() {
         if $resized || $clear_next; then
             hide_cursor
             clear_screen
-            print_status_line "${PWD##*/}"
+            print_status_line "$(basename $PWD)/"
             clear_next=false
             resized=false
         fi
@@ -474,6 +474,11 @@ start_selector() {
                     fi
                 fi
                 ;;
+            h|$'\e[D')  # left arrow, h
+                preselected="${PWD##*/}/"
+                cd ..
+                return
+                ;;
             $'\cb'|$'\cu'|$'\e[5~')  # page up, ctrl+b, ctrl+u
                 if ((selected - page_step > 1)); then
                     ((selected-=page_step))
@@ -506,49 +511,71 @@ start_selector() {
                 ((offset=$# - max_items))
                 offset=$((offset > 0 ? offset : 0))
                 ;;
-            a|A|$'\ca'|$'\x01')  # ctrl+a
+            a|A|$'\ca'|$'\x01') # a, A, ctrl-a
                 ((select_all ^= 1))
                 marked=()
                 if ((select_all == 1)); then
                     for ((i=1; i<idx; i++)); do
-                        marked+=($i)
+                        if [[ ${!i} != */ ]]; then
+                            marked+=($i)
+                        fi
                     done
                 fi
                 ;;
-            ' '|$'\x09')  # tab
-                local found=false
-                for i in "${!marked[@]}"; do
-                    if [[ ${marked[i]} == "$selected" ]]; then
-                        found=true
-                        unset 'marked[i]'
+            ' '|$'\x09')  # space, tab
+                if [[ ${!selected} != */ ]]; then
+                    local found=false
+                    for i in "${!marked[@]}"; do
+                        if [[ ${marked[i]} == "$selected" ]]; then
+                            found=true
+                            unset 'marked[i]'
+                        fi
+                    done
+                    if ! $found; then
+                        marked+=( $selected )
                     fi
-                done
-                if ! $found; then
-                    marked+=( $selected )
                 fi
                 ;;
             e|l|$'\n'|$'\e[C') # enter, right arrow
-                local marked_strings=()
-                for m in "${marked[@]}"; do
-                    (( m != selected )) && marked_strings+=("${!m}")
-                done
-                start_editor "${!selected}" "${marked_strings[@]}"
-                clear_next=true
+                if [[ -n ${!selected} ]]; then
+                    if [[ ${!selected} == */ ]]; then
+                        cd "${!selected}"
+                        return
+                    else
+                        local marked_strings=()
+                        for m in "${marked[@]}"; do
+                            (( m != selected )) && marked_strings+=("${!m}")
+                        done
+                        start_editor "${!selected}" "${marked_strings[@]}"
+                        clear_next=true
+                    fi
+                fi
                 ;;
             r)
                 local marked_strings=()
+                if [[ ${!selected} != */ ]]; then
+                    marked_strings+=("${!selected}")
+                fi
                 for m in "${marked[@]}"; do
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
-                start_scanner true "$#" "${!selected}" "${marked_strings[@]}"
-                clear_next=true
+                if (( ${#marked_strings} > 0 )); then
+                    start_scanner true "$#" "${marked_strings[@]}"
+                    clear_next=true
+                fi
                 ;;
             f)
                 local marked_strings=()
+                if [[ ${!selected} != */ ]]; then
+                    marked_strings+=("${!selected}")
+                fi
                 for m in "${marked[@]}"; do
                     (( m != selected )) && marked_strings+=("${!m}")
                 done
-                start_scanner false "$#" "${!selected}" "${marked_strings[@]}"
+                if (( ${#marked_strings} > 0 )); then
+                    start_scanner false "$#" "${marked_strings[@]}"
+                    clear_next=true
+                fi
                 clear_next=true
                 ;;
             q|$'\x1b')
@@ -732,6 +759,7 @@ start_scanner() {
 
     hide_cursor
     clear_screen
+    print_status_line "$@"
     move_cursor 5
     printf 'Legend\n'
     for n in "${sorted_legend[@]}"; do
@@ -739,7 +767,6 @@ start_scanner() {
     done
 
     while true; do
-        print_status_line "$@"
         if $rename_mode; then
             preview=$input
             if [[ $preview =~ %([1-9])n ]]; then
@@ -1321,7 +1348,7 @@ start() {
     # needed for expansion in zero_pad function
     shopt -s extglob
 
-    if [[ -f "$file" ]]; then
+    if [[ -z "$preselected" ]] && [[ -f "$file" ]]; then
         preselected=$(basename "$file")
         path=$(dirname "$file")
         start_editor "$file"
@@ -1331,6 +1358,13 @@ start() {
     builtin cd "$path"
     while true; do
         local audio_files=()
+        local directories=()
+
+        # directories
+        while IFS=  read -r -d $'\0'; do
+            directories+=("$(basename "$REPLY")/")
+        done < <(find . -maxdepth 1 -type d -not -name '.*' -print0)
+
         # mp3 support check
         [[ -x "$(command -v mid3v2)" ]] && while IFS=  read -r -d $'\0'; do
             audio_files+=("$(basename "$REPLY")")
@@ -1346,11 +1380,9 @@ start() {
             audio_files+=("$(basename "$REPLY")")
         done < <(find . -maxdepth 1 -type f -name "*.ogg" -print0)
 
-        (( ${#audio_files[@]} )) || \
-            clean_exit 1 "No supported audio files found."
-
+        IFS=$'\n' sorted_dirs=($(sort <<< "${directories[*]}"))
         IFS=$'\n' sorted=($(sort <<< "${audio_files[*]}"))
-        start_selector "${sorted[@]}"
+        start_selector "${sorted_dirs[@]}" "${sorted[@]}"
     done
 }
 
