@@ -420,7 +420,7 @@ start_selector() {
         if $resized || $clear_next; then
             hide_cursor
             clear_screen
-            print_status_line "$(basename $PWD)/"
+            print_status_line "$(basename "$PWD")/"
             clear_next=false
             resized=false
         fi
@@ -541,8 +541,7 @@ start_selector() {
             e|l|$'\n'|$'\e[C') # enter, right arrow
                 if [[ -n ${!selected} ]]; then
                     if [[ ${!selected} == */ ]]; then
-                        cd "${!selected}"
-                        return
+                        cd "${!selected}" && return
                     else
                         local marked_strings=()
                         for m in "${marked[@]}"; do
@@ -581,7 +580,7 @@ start_selector() {
                 clear_next=true
                 ;;
             q|$'\x1b')
-                clean_exit
+                clean_exit 0
                 ;;
         esac
     done
@@ -1325,7 +1324,7 @@ start_editor() {
                 return
                 ;;
             q) # quit
-                clean_exit
+                clean_exit 0
                 ;;
         esac
     done
@@ -1336,7 +1335,6 @@ clean_exit() {
     show_cursor
     trap '' EXIT
     trap '' WINCH
-    echo >&2 "$2"
     # shellcheck disable=SC2086
     exit $1
 }
