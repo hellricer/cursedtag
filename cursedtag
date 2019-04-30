@@ -229,10 +229,11 @@ zero_pad() {
     fi
 }
 
-wait_for_enter() {
+wait_for_key() {
     echo
-    echo " [Press enter...]"
-    read -r
+    # clear stdin buffer
+    while read -r -t 0; do read -r; done
+    read -n 1 -s -r -p "[Press any key...]"
 }
 
 print_status_line() {
@@ -916,7 +917,7 @@ start_scanner() {
     else
         fill_tags "$input" "$@"
     fi
-    wait_for_enter
+    wait_for_key
 }
 
 read_data() {
@@ -1299,7 +1300,7 @@ start_editor() {
                     "$field" "${data_state[$field]}"
                 printf '    %s\n' "${@}"
                 print
-                wait_for_enter
+                wait_for_key
                 ;;
             s|w) # save
                 clear_next=true
@@ -1315,7 +1316,7 @@ start_editor() {
                             "$CURSEDTAG_COLOR_OPTION" "$n" "${data[$n]}"
                     fi
                 done
-                wait_for_enter
+                wait_for_key
                 ;;
             h|$'\e[D'|$'\x1b')  # back to selector
                 return
