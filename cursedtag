@@ -16,6 +16,7 @@ fi
 : "${CURSEDTAG_COLOR_MARKED:=$'\e[32m'}"
 : "${CURSEDTAG_COLOR_SUCCESS:=$'\e[32m'}"
 : "${CURSEDTAG_COLOR_SELECTED:=$'\e[7m'}"
+: "${CURSEDTAG_SYMBOL_MARKED:="*"}"
 : "${CURSEDTAG_DEFAULT_TEMPLATE:=}"
 : "${CURSEDTAG_FIELDS:="title artist albumartist album
                 date track tracktotal genre comment composer performer"}"
@@ -254,7 +255,7 @@ print_option() {
     local mark_symbol=" "
     local opt=$4
     if $1; then  # if marked
-        mark_symbol="*"
+        mark_symbol=$CURSEDTAG_SYMBOL_MARKED
         option_color=$CURSEDTAG_COLOR_MARKED
     fi
     if $2; then  # if selected
