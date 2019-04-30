@@ -1273,6 +1273,9 @@ start_editor() {
                 ;;
             y)  # yank
                 yanked=${data_state[$field]}
+                if [[ -n $CURSEDTAG_COMMAND_YANK ]]; then
+                    echo -n $yanked | eval "$CURSEDTAG_COMMAND_YANK"
+                fi
                 ;;
             p)  # paste
                 if [[ -v yanked ]]; then

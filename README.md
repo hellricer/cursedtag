@@ -67,6 +67,8 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
    - **u** - undo changed field
    - **←, esc** - go file selector
    - **q, ctrl-c** - quit
+   - **y** - yank field
+   - **p** - paste
 
 For moving around, you can use arrow keys, enter/escape, home/end, pgup/pgdown.
 
@@ -100,6 +102,13 @@ You can customize the program by setting following environment variables:
     CURSEDTAG_COLOR_MARKED=…
     CURSEDTAG_COLOR_SUCCESS=…
     CURSEDTAG_COLOR_SELECTED=…
+
+    # Symbol of marked files ("*" by default)
+    CURSEDTAG_SYMBOL_MARKED=…
+
+    # Command that the yanked text will be piped into. E.g.:
+    CURSEDTAG_COMMAND_YANK="xclip -f -in -sel primary | xclip -in -sel clipboard"
+
 ```
 
 Program also sources `~/.config/cursedtag/rc` file, if it exists. Here's an example
