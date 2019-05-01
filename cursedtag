@@ -524,6 +524,12 @@ start_selector() {
                     done
                 fi
                 ;;
+            y)  # yank
+                yanked=${!selected}
+                if [[ -n $CURSEDTAG_COMMAND_YANK ]]; then
+                    echo -n $yanked | eval "$CURSEDTAG_COMMAND_YANK"
+                fi
+                ;;
             ' '|$'\x09')  # space, tab
                 if [[ ${!selected} != */ ]]; then
                     local found=false
@@ -627,8 +633,7 @@ bulk_rename() {
         # replace specifiers with data
         for s in "${specifiers[@]}"; do
             if [[ $newname =~ %${s} ]]; then
-                local substitution=$(echo "${fields[$s]}" | \
-                    sed -e 's;/;\\/;g')
+                local substitution=${fields[$s]//\//_}
                 newname=${newname//%${s}/${substitution}}
             fi
         done
@@ -781,8 +786,7 @@ start_scanner() {
             # replace specifiers with data
             for s in "${specifiers[@]}"; do
                 if [[ $preview =~ %${s} ]]; then
-                    local substitution=$(echo "${fields[$s]}" |\
-                        sed -e 's;/;\\/;g')
+                    local substitution=${fields[$s]//\//_}
                     if [[ -z $substitution ]]; then
                         substitution="[…]"
                     fi
