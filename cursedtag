@@ -184,7 +184,7 @@ dirname() {
 
 convert_time() {
     local h=$(($1 / 3600))
-    local h_remain=$(($1 & 3600))
+    local h_remain=$(($1 % 3600))
     local m=$((h_remain / 60))
     local s=$(($1 % 60))
     if (( h > 0 )); then
@@ -941,9 +941,9 @@ read_data() {
 read_data_mid3v2() {
     local extension="${1##*.}"
     if [[ $extension == "mp3" ]]; then
-        data['_size']=$(du -h -- "$1" | awk '{print $1}')
-        data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
-        local secs=$(sox --i -D -- "$1" 2>&-)
+        data['_size']=$(du -h -- "$1" | cut -f 1)
+        data['_bitrate']=$(sox --info -B -- "$1" 2>&-)
+        local secs=$(sox --info -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['_length']=$(convert_time "$secs")
         local tyer
@@ -986,9 +986,9 @@ read_data_mid3v2() {
 read_data_metaflac() {
     local extension="${1##*.}"
     if [[ $extension == "flac" ]]; then
-        data['_size']=$(du -h -- "$1" | awk '{print $1}')
-        data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
-        local secs=$(sox --i -D -- "$1" 2>&-)
+        data['_size']=$(du -h -- "$1" | cut -f 1)
+        data['_bitrate']=$(sox --info -B -- "$1" 2>&-)
+        local secs=$(sox --info -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['_length']=$(convert_time "$secs")
 
@@ -1010,9 +1010,9 @@ read_data_metaflac() {
 read_data_vorbiscomment() {
     local extension="${1##*.}"
     if [[ $extension == "ogg" ]]; then
-        data['_size']=$(du -h -- "$1" | awk '{print $1}')
-        data['_bitrate']=$(sox --i -B -- "$1" 2>&-)
-        local secs=$(sox --i -D -- "$1" 2>&-)
+        data['_size']=$(du -h -- "$1" | cut -f 1)
+        data['_bitrate']=$(sox --info -B -- "$1" 2>&-)
+        local secs=$(sox --info -D -- "$1" 2>&-)
         secs="${secs%%.*}"
         data['_length']=$(convert_time "$secs")
 
