@@ -34,11 +34,11 @@
 
 - `bash 4.0+`
 - `coreutils`
-    - File operations.
+  - `cd`, `mkdir`, `du`, `cut`, `find`, `grep`, `sed`.
 - `perl`
     - Used for non-greedy regex capturing.
 - `sox`
-    - For retrieving information about audio files (bitrate, duration, ...).
+    - For retrieving bitrate, duration & length from audio files.
 - `mid3v2`
 - `metaflac`
 - `vorbiscomment`
@@ -57,6 +57,7 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
    - **r** - rename files in scanner mode
    - **f** - fill tags in scanner mode
    - **→, enter, esc** - go to tag editor
+   - **y** - yank filename
    - **q, ctrl-c** - quit
 
 * Editor mode:
@@ -66,9 +67,9 @@ There are thre modes in `cursedtag` - file selector, editor & scanner.
    - **S, W** - apply field to all marked files
    - **u** - undo changed field
    - **←, esc** - go file selector
-   - **q, ctrl-c** - quit
    - **y** - yank field
    - **p** - paste
+   - **q, ctrl-c** - quit
 
 For moving around, you can use arrow keys, enter/escape, home/end, pgup/pgdown.
 
@@ -106,8 +107,8 @@ You can customize the program by setting following environment variables:
     # Symbol of marked files ("*" by default)
     CURSEDTAG_SYMBOL_MARKED=…
 
-    # Command that the yanked text will be piped into. E.g.:
-    CURSEDTAG_COMMAND_YANK="xclip -f -in -sel primary | xclip -in -sel clipboard"
+    # Command that the yanked text will be piped into. Empty by default.
+    CURSEDTAG_COMMAND_YANK=…
 
 ```
 
@@ -117,6 +118,7 @@ of one that doesn't override already set environment variables:
     : ${CURSEDTAG_DEFAULT_TEMPLATE:="%a - %n"}
     : ${CURSEDTAG_FIELDS:="title album artist"}
     : ${CURSEDTAG_COLOR_STATUS:=$'\e[35m'}
+    : ${CURSEDTAG_COMMAND_YANK:="xclip -f -in -sel primary | xclip -in -sel clipboard"}
 ```
 
 
