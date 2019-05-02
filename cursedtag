@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2155
+# shellcheck disable=SC2155,SC1090
+# vi: set shiftwidth=4 tabstop=4 expandtab:
 #
 # cursedtag - a console audio tag editor.
 
@@ -37,6 +38,9 @@ fieldmapping=(
     [tracktotal]="Number of tracks"
     # read-only fields
     [_filename]="Filename"
+    [_size]="Size"
+    [_bitrate]="Bitrate"
+    [_length]="Length"
 )
 
 # short specifiers used in scanner mode
@@ -54,6 +58,9 @@ specifiers=(
     [performer]=p
     [tracktotal]=l
     [_filename]=f
+    [_bitrate]=B
+    [_size]=s
+    [_length]=L
 )
 
 # map fields to IDs used my mid3v2
@@ -223,6 +230,7 @@ zero_pad() {
     local width=$2
     if [[ $number =~ ^[0-9]+$ ]]; then
         number=${number##+(0)}
+        # FIXME: printf abuse:
         printf "%.0${width}d\n" "${number}"
     else
         printf "%s\n" "$number"
@@ -527,7 +535,7 @@ start_selector() {
             y)  # yank
                 yanked=${!selected}
                 if [[ -n $CURSEDTAG_COMMAND_YANK ]]; then
-                    echo -n $yanked | eval "$CURSEDTAG_COMMAND_YANK"
+                    echo -n "$yanked" | eval "$CURSEDTAG_COMMAND_YANK"
                 fi
                 ;;
             ' '|$'\x09')  # space, tab
@@ -939,19 +947,22 @@ read_data_mid3v2() {
         secs="${secs%%.*}"
         data['_length']=$(convert_time "$secs")
         local tyer
+        local regex="[^ ]*=(.*)$"
 
         while read -r line; do
             local tag=$(echo "$line" | grep -ao "^....")
-            local value=$(echo "$line" | sed "s/[^ ]*=\(.*\)$/\1/")
-            if [[ -v "mid3v2_mapping[$tag]" ]]; then
-                local tagname="${mid3v2_mapping[$tag]}"
-                if ! [[ -v "data[$tagname]" ]]; then
-                    data[$tagname]=$value
-                    data_state[$tagname]=$value
+            if [[ $line =~ $regex ]]; then
+                local value=${BASH_REMATCH[1]}
+                if [[ -v "mid3v2_mapping[$tag]" ]]; then
+                    local tagname="${mid3v2_mapping[$tag]}"
+                    if ! [[ -v "data[$tagname]" ]]; then
+                        data[$tagname]=$value
+                        data_state[$tagname]=$value
+                    fi
                 fi
-            fi
-            if [[ "$tag" == "TYER" ]]; then
-                tyer=$value
+                if [[ "$tag" == "TYER" ]]; then
+                    tyer=$value
+                fi
             fi
         done <<< "$(mid3v2 -q -- "$1" | grep -a "^....=" | tr '\0' '=')"
 
@@ -1155,12 +1166,12 @@ start_editor() {
             move_cursor 2
             clear_next=false
             resized=false
-            printf 'bitrate: %s%-4s\e[0m  ' \
-                "$CURSEDTAG_COLOR_OPTION" "${data[_bitrate]}"
-            printf 'file size: %s%-4s\e[0m  ' \
-                "$CURSEDTAG_COLOR_OPTION" "${data[_size]}"
-            printf 'length: %s%s\e[0m\n' \
-                "$CURSEDTAG_COLOR_OPTION" "${data[_length]}"
+            printf '%s: %s%-4s\e[0m  ' \
+                "${fieldmapping['_bitrate']}" "$CURSEDTAG_COLOR_OPTION" "${data[_bitrate]}"
+            printf '%s: %s%-4s\e[0m  ' \
+                "${fieldmapping['_size']}" "$CURSEDTAG_COLOR_OPTION" "${data[_size]}"
+            printf '%s: %s%s\e[0m\n' \
+                "${fieldmapping['_length']}" "$CURSEDTAG_COLOR_OPTION" "${data[_length]}"
         fi
 
         # print options
@@ -1277,7 +1288,7 @@ start_editor() {
             y)  # yank
                 yanked=${data_state[$field]}
                 if [[ -n $CURSEDTAG_COMMAND_YANK ]]; then
-                    echo -n $yanked | eval "$CURSEDTAG_COMMAND_YANK"
+                    echo -n "$yanked" | eval "$CURSEDTAG_COMMAND_YANK"
                 fi
                 ;;
             p)  # paste
