@@ -32,7 +32,7 @@
 
 ## Dependencies
 
-- `bash 4.0+`
+- `bash 4.4+`
 - `coreutils`
   - `cd`, `mkdir`, `du`, `tr`, `cut`, `find`, `grep`, `sed`.
 - `perl`
