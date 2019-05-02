@@ -34,7 +34,7 @@
 
 - `bash 4.0+`
 - `coreutils`
-  - `cd`, `mkdir`, `du`, `cut`, `find`, `grep`, `sed`.
+  - `cd`, `mkdir`, `du`, `tr`, `cut`, `find`, `grep`, `sed`.
 - `perl`
     - Used for non-greedy regex capturing.
 - `sox`

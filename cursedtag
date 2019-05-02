@@ -4,6 +4,13 @@
 #
 # cursedtag - a console audio tag editor.
 
+# version-check
+if [[ "${BASH_VERSINFO[0]}" -lt 4 ]] ||
+    ( [[ "${BASH_VERSINFO[0]}" -eq 4 ]] && [[ "${BASH_VERSINFO[1]}" -lt 4 ]] ); then
+    echo >&2 "Bash 4.4+ is required."
+    exit 1
+fi
+
 # read configuration file
 if [[ -f "${XDG_CONFIG_HOME:-$HOME/.config}/cursedtag/rc" ]]; then
     . "${XDG_CONFIG_HOME:-$HOME/.config}/cursedtag/rc"
