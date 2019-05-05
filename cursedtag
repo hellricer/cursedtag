@@ -303,29 +303,35 @@ editor_prompt() {
         fi
     fi
 
+    local key=1
     while true; do
-        local position=$((cursor_offset + cursor))
+        # exit input prompt when the window is resized
+        $resized && break
 
-        hide_cursor
-        # erase input part of the field
-        clear_line "$y" $((x - 1))
+        if [[ -n $key ]]; then
+            local position=$((cursor_offset + cursor))
 
-        move_cursor "$y" $x
-        ln=$((input_width + 1))
-        local dots=" "
-        if (( cursor_offset + input_width < ${#input} )); then
-            dots="…"
+            hide_cursor
+            # erase input part of the field
+            clear_line "$y" $((x - 1))
+
+            move_cursor "$y" $x
+            ln=$((input_width + 1))
+            local dots=" "
+            if (( cursor_offset + input_width < ${#input} )); then
+                dots="…"
+            fi
+            printf -- '%s' "${input:$cursor_offset:$ln}${dots}"
+            move_cursor "$y" $((x + cursor))
+            show_cursor
         fi
-        printf -- '%s' "${input:$cursor_offset:$ln}${dots}"
-        move_cursor "$y" $((x + cursor))
-        show_cursor
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -srN1 key 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
+        read -srN 1 -t 0.5 key 2>&-
+        read -srN 1 -t 0.0001 k1 2>&-
+        read -srN 1 -t 0.0001 k2 2>&-
+        read -srN 1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -384,7 +390,7 @@ editor_prompt() {
                     cursor_offset=$((cursor_offset -1))
                 fi
                 ;;
-            ''|$'\n')
+            $'\n')
                 break
                 ;;
             $'\x1b') # escape
@@ -403,7 +409,6 @@ editor_prompt() {
                 ;;
         esac
     done
-
     editor_prompt_output=$input
 }
 
@@ -431,48 +436,51 @@ start_selector() {
     fi
 
     local clear_next=true
+    local key=1
     while true; do
+        # exit selector, when a file is renamed.
+        # it will be called again with fresh list of files.
+        if $file_renamed; then
+            file_renamed=false
+            break
+        fi
         if $resized || $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "$(basename "$PWD")/"
-            clear_next=false
-            resized=false
         fi
+        if $resized || $clear_next || [[ -n $key ]]; then
+            idx=1
+            for opt; do
+                if ((idx > offset)) && ((idx < offset + max_items + 1)); then
+                    local is_selected=false
+                    local is_marked=false
+                    local is_too_long=false
 
-        if $file_renamed; then
-            file_renamed=false
-            return
-        fi
+                    [[ $idx == "$selected" ]] && \
+                        is_selected=true
+                    array_contains $idx "${marked[@]}" && \
+                        is_marked=true
 
-        idx=1
-        for opt; do
-            if ((idx > offset)) && ((idx < offset + max_items + 1)); then
-                local is_selected=false
-                local is_marked=false
-                local is_too_long=false
-
-                [[ $idx == "$selected" ]] && \
-                    is_selected=true
-                array_contains $idx "${marked[@]}" && \
-                    is_marked=true
-
-                local n=$((${#opt} + 2))
-                if (( n >= max_columns )); then
-                    is_too_long=true
+                    local n=$((${#opt} + 2))
+                    if (( n >= max_columns )); then
+                        is_too_long=true
+                    fi
+                    move_cursor $((1 - offset + idx))
+                    print_option "$is_marked" "$is_selected" "$is_too_long" "$opt"
                 fi
-                move_cursor $((1 - offset + idx))
-                print_option "$is_marked" "$is_selected" "$is_too_long" "$opt"
-            fi
-            ((idx++))
-        done
+                ((idx++))
+            done
+        fi
+        $resized && resized=false
+        $clear_next && clear_next=false
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -srN1 key 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
+        read -srN 1 -t 0.5 key 2>&-
+        read -srN 1 -t 0.0001 k1 2>&-
+        read -srN 1 -t 0.0001 k2 2>&-
+        read -srN 1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             k|$'\e[A')  # up arrow, k
@@ -598,7 +606,6 @@ start_selector() {
                     start_scanner false "$#" "${marked_strings[@]}"
                     clear_next=true
                 fi
-                clear_next=true
                 ;;
             q|$'\x1b')
                 clean_exit 0
@@ -778,105 +785,110 @@ start_scanner() {
     done
     IFS=$'\n' sorted_legend=($(sort <<< "${legend[*]}"))
 
-    hide_cursor
-    clear_screen
-    print_status_line "$@"
-    move_cursor 5
-    printf 'Legend\n'
-    for n in "${sorted_legend[@]}"; do
-        printf '  %s\n' "$n"
-    done
-
+    local key=1
     while true; do
-        if $rename_mode; then
-            preview=$input
-            if [[ $preview =~ %([1-9])n ]]; then
-                number_width=${BASH_REMATCH[1]}
-                preview=${preview//%[1-9]n/%n}
-                fields['n']=$(zero_pad "${fields['n']}" "$number_width")
-            else
-                # we need to reset, if it's deleted
-                number_width=${#number_of_files}
-            fi
-            # replace specifiers with data
-            for s in "${specifiers[@]}"; do
-                if [[ $preview =~ %${s} ]]; then
-                    local substitution=${fields[$s]//\//_}
-                    if [[ -z $substitution ]]; then
-                        substitution="[…]"
-                    fi
-                    preview=${preview//%${s}/${substitution}}
-                fi
-            done
-        else
-            # parse filename according to template
-            preview=""
-            local regexp="$(echo "$input" | \
-                    sed -e 's,/,\\/,g ; s,|,\\|,g' \
-                    -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
-            local order=()
-            for s in "${!specifiers[@]}"; do
-                if [[ ! $s =~ ^_ ]] && [[ $input =~ %${specifiers[$s]} ]]; then
-                    local x=$(strindex "$input" "%${specifiers[$s]}")
-                    regexp=${regexp//%${specifiers[$s]}/\(.*?\)}
-                    if (( x >= 0 )); then
-                        order[$x]=${specifiers[$s]}
-                    fi
-                fi
+        if $resized || [[ -n $key ]]; then
+            hide_cursor
+            clear_screen
+            print_status_line "$@"
+            move_cursor 5
+            printf 'Legend\n'
+            for n in "${sorted_legend[@]}"; do
+                printf '  %s\n' "$n"
             done
 
-            local idx=1
-            local replacement=()
-            for s in "${order[@]}"; do
-                replacement+=("%${s}=\\${idx}")
-                ((idx++))
-            done
-            local parent_name=""
-            local parent=""
-            local filename="${1%.*}"
-            local slashes="${regexp//[^\/]}"
-            local slashes_count=${#slashes}
-            if ((slashes_count > 0 )); then
-                for ((i=1; i<=slashes_count; i++)); do
-                    parent_name="$(basename "${parent:-$PWD}")"
-                    if ! [[ $parent_name == "/" ]]; then
-                        filename=${parent_name}/${filename}
-                    else
-                        filename=/$filename
-                        break
+            if $rename_mode; then
+                preview=$input
+                if [[ $preview =~ %([1-9])n ]]; then
+                    number_width=${BASH_REMATCH[1]}
+                    preview=${preview//%[1-9]n/%n}
+                    fields['n']=$(zero_pad "${fields['n']}" "$number_width")
+                else
+                    # we need to reset, if it's deleted
+                    number_width=${#number_of_files}
+                fi
+                # replace specifiers with data
+                for s in "${specifiers[@]}"; do
+                    if [[ $preview =~ %${s} ]]; then
+                        local substitution=${fields[$s]//\//_}
+                        if [[ -z $substitution ]]; then
+                            substitution="[…]"
+                        fi
+                        preview=${preview//%${s}/${substitution}}
                     fi
-                    parent=$(dirname "${parent:-$PWD}")
                 done
-                print_status_line "$filename"
+            else
+                # parse filename according to template
+                preview=""
+                local regexp="$(echo "$input" | \
+                        sed -e 's,/,\\/,g ; s,|,\\|,g' \
+                        -e 's/(/\\(/g ; s/)/\\)/g ; s/\[/\\[/g ; s/\]/\\]/g')"
+                local order=()
+                for s in "${!specifiers[@]}"; do
+                    if [[ ! $s =~ ^_ ]] && [[ $input =~ %${specifiers[$s]} ]]; then
+                        local x=$(strindex "$input" "%${specifiers[$s]}")
+                        regexp=${regexp//%${specifiers[$s]}/\(.*?\)}
+                        if (( x >= 0 )); then
+                            order[$x]=${specifiers[$s]}
+                        fi
+                    fi
+                done
+
+                local idx=1
+                local replacement=()
+                for s in "${order[@]}"; do
+                    replacement+=("%${s}=\\${idx}")
+                    ((idx++))
+                done
+                local parent_name=""
+                local parent=""
+                local filename="${1%.*}"
+                local slashes="${regexp//[^\/]}"
+                local slashes_count=${#slashes}
+                if ((slashes_count > 0 )); then
+                    for ((i=1; i<=slashes_count; i++)); do
+                        parent_name="$(basename "${parent:-$PWD}")"
+                        if ! [[ $parent_name == "/" ]]; then
+                            filename=${parent_name}/${filename}
+                        else
+                            filename=/$filename
+                            break
+                        fi
+                        parent=$(dirname "${parent:-$PWD}")
+                    done
+                    print_status_line "$filename"
+                fi
+                if (( ${#replacement[@]} )); then
+                    local replacement_str=$(join_by " " "${replacement[@]}")
+                    output=$(echo "$filename" | \
+                        perl -ne "print if s|^${regexp}$|${replacement_str}|")
+                    [[ -n "$output" ]] && \
+                        preview=$output
+                fi
             fi
-            if (( ${#replacement[@]} )); then
-                local replacement_str=$(join_by " " "${replacement[@]}")
-                output=$(echo "$filename" | \
-                    perl -ne "print if s|^${regexp}$|${replacement_str}|")
-                [[ -n "$output" ]] && \
-                    preview=$output
-            fi
+
+            # erase only lines that change to avoid too much clear_screen
+            hide_cursor
+            clear_line 3
+            clear_line 4
+            move_cursor 2
+            printf ' > %s\e[K\n' "$input"
+            # "two lines should be enough for everyone"
+            printf '\e[32m%s\e[0m\e[K\n' "${preview::$max_columns}"
+            printf '\e[32m%s\e[0m\e[K' "${preview:$((max_columns - 1))}"
+            # jump back to prompt
+            move_cursor 2 $((4 + cursor))
+            show_cursor
         fi
 
-        # erase only lines that change to avoid too much clear_screen
-        hide_cursor
-        clear_line 3
-        clear_line 4
-        move_cursor 2
-        printf ' > %s\e[K\n' "$input"
-        # "two lines should be enough for everyone"
-        printf '\e[32m%s\e[0m\e[K\n' "${preview::$max_columns}"
-        printf '\e[32m%s\e[0m\e[K' "${preview:$((max_columns - 1))}"
-        # jump back to prompt
-        move_cursor 2 $((4 + cursor))
-        show_cursor
+        $resized && resized=false
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -srN1 key 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
+        read -srN 1 -t 0.5 key 2>&-
+        read -srN 1 -t 0.0001 k1 2>&-
+        read -srN 1 -t 0.0001 k2 2>&-
+        read -srN 1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             $'\e[D')
@@ -1161,59 +1173,60 @@ start_editor() {
 
     local number_prefix=1
     local clear_next=true
+    local key=1
     while true; do
-        local field_index=$((selected - 1))
-        local field=${fieldorder[$field_index]}
-
         # clear screen if the offset changed
         if $resized || $clear_next; then
             hide_cursor
             clear_screen
             print_status_line "$(basename "$@")"
             move_cursor 2
-            clear_next=false
-            resized=false
             printf '%s: %s%-4s\e[0m  ' \
                 "${fieldmapping['_bitrate']}" "$CURSEDTAG_COLOR_OPTION" "${data[_bitrate]}"
             printf '%s: %s%-4s\e[0m  ' \
                 "${fieldmapping['_size']}" "$CURSEDTAG_COLOR_OPTION" "${data[_size]}"
             printf '%s: %s%s\e[0m\n' \
                 "${fieldmapping['_length']}" "$CURSEDTAG_COLOR_OPTION" "${data[_length]}"
+            clear_next=false
         fi
 
-        # print options
-        idx=1
-        for s in "${fieldorder[@]}"; do
-            if ((idx > offset)) && ((idx < offset + max_items)); then
-                local fieldname=${fieldmapping[$s]}
-                local is_selected=false
-                local is_unsaved=false
-                local is_too_long=false
+        if $resized || [[ -n $key ]]; then
+            # print options
+            idx=1
+            for s in "${fieldorder[@]}"; do
+                if ((idx > offset)) && ((idx < offset + max_items)); then
+                    local fieldname=${fieldmapping[$s]}
+                    local is_selected=false
+                    local is_unsaved=false
+                    local is_too_long=false
 
-                [[ $idx == "$selected" ]] && \
-                    is_selected=true
-                if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
-                    is_unsaved=true
+                    [[ $idx == "$selected" ]] && \
+                        is_selected=true
+                    if ! [[ ${data[$s]} == "${data_state[$s]}" ]]; then
+                        is_unsaved=true
+                    fi
+
+                    move_cursor $((2 - offset + idx))  # starting at 3nd row
+                    printf ' %-*s %s:' "$max_field_length" "$fieldname"
+
+                    local n=$((${#data_state[$s]} + max_field_length + 5))
+                    if (( n >= max_columns )); then
+                        is_too_long=true
+                    fi
+                    print_option "$is_unsaved" "$is_selected" "$is_too_long" "${data_state[$s]}"
                 fi
+                ((idx++))
+            done
+        fi
 
-                move_cursor $((2 - offset + idx))  # starting at 3nd row
-                printf ' %-*s %s:' "$max_field_length" "$fieldname"
-
-                local n=$((${#data_state[$s]} + max_field_length + 5))
-                if (( n >= max_columns )); then
-                    is_too_long=true
-                fi
-                print_option "$is_unsaved" "$is_selected" "$is_too_long" "${data_state[$s]}"
-            fi
-            ((idx++))
-        done
+        $resized && resized=false
 
         # catch multi-char special key sequences
         key=
-        POSIXLY_CORRECT=1 read -srN1 key 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k1 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k2 2>&-
-        POSIXLY_CORRECT=1 read -srN1 -t 0.0001 k3 2>&-
+        read -srN 1 -t 0.5 key 2>&-
+        read -srN 1 -t 0.0001 k1 2>&-
+        read -srN 1 -t 0.0001 k2 2>&-
+        read -srN 1 -t 0.0001 k3 2>&-
         key+=${k1}${k2}${k3}
         case "$key" in
             [2-9])
@@ -1277,6 +1290,7 @@ start_editor() {
                 offset=$((offset > 0 ? offset : 0))
                 ;;
             i)  # edit (cursor at start)
+                local field=${fieldorder[$selected - 1]}
                 editor_prompt_output=""
                 editor_prompt false $((selected - offset + 2)) \
                     $max_field_length "${data_state[$field]}"
@@ -1285,6 +1299,7 @@ start_editor() {
                 clear_line $((selected - offset + 2))
                 ;;
             a|$'\n') # edit (cursor at end)
+                local field=${fieldorder[$selected - 1]}
                 editor_prompt_output=""
                 editor_prompt true $((selected - offset + 2)) \
                     ${max_field_length} "${data_state[$field]}"
@@ -1293,27 +1308,32 @@ start_editor() {
                 clear_line $((selected - offset + 2))
                 ;;
             y)  # yank
+                local field=${fieldorder[$selected - 1]}
                 yanked=${data_state[$field]}
                 if [[ -n $CURSEDTAG_COMMAND_YANK ]]; then
                     echo -n "$yanked" | eval "$CURSEDTAG_COMMAND_YANK"
                 fi
                 ;;
             p)  # paste
+                local field=${fieldorder[$selected - 1]}
                 if [[ -v yanked ]]; then
                     data_state[$field]=$yanked
                     clear_line $((selected - offset + 2))
                 fi
                 ;;
             x|d) # erase
+                local field=${fieldorder[$selected - 1]}
                 yanked=${data_state[$field]}
                 data_state[$field]=""
                 clear_line $((selected - offset + 2))
                 ;;
             u)  # undo
+                local field=${fieldorder[$selected - 1]}
                 data_state[$field]=${data[$field]}
                 clear_line $((selected - offset + 2))
                 ;;
             S|W) # apply field to all files
+                local field=${fieldorder[$selected - 1]}
                 clear_next=true
                 clear_screen
                 print_status_line "$@"
