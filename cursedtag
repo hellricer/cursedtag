@@ -739,11 +739,11 @@ start_selector() {
                     offset=$((offset > 0 ? offset : 0))
                 fi
                 ;;
-            g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
+            g|$'\e[1~'|$'\e[7~'|$'\e0H'|$'\e[H')  # home
                 selected=1
                 offset=0
                 ;;
-            G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
+            G|$'\e[4~'|$'\e[8~'|$'\e0F'|$'\e[F')  # end
                 selected=$#
                 ((offset=$# - max_items))
                 offset=$((offset > 0 ? offset : 0))
@@ -981,10 +981,10 @@ start_scanner() {
             $'\e[C') # right arrow
                 ((cursor < ${#input} )) && ((cursor++))
                 ;;
-            $'\ca'|$'\e[1~'|$'\e0H'|$'\e[H') # home
+            $'\ca'|$'\e[1~'|$'\e[7~'|$'\e0H'|$'\e[H') # home
                 cursor=0
                 ;;
-            $'\ce'|$'\e[4~'|$'\e0F'|$'\e[F') # end
+            $'\ce'|$'\e[4~'|$'\e[8~'|$'\e0F'|$'\e[F') # end
                 cursor=${#input}
                 ;;
             $'\x7f'|$'\177') # backspace
@@ -998,7 +998,7 @@ start_scanner() {
                 input=
                 cursor=0
                 ;;
-            $'\e[3~') # delete
+            $'\e[3~'|$'\e[P') # delete
                 l=$((cursor + 1))
                 input=${input:0:$cursor}${input:$l:${#input}}
                 ;;
@@ -1103,7 +1103,7 @@ editor_prompt() {
 
                 fi
                 ;;
-            $'\ca'|$'\e[1~'|$'\e0H'|$'\e[H') # home
+            $'\ca'|$'\e[1~'|$'\e[7~'|$'\e0H'|$'\e[H') # home
                 cursor=0
                 cursor_offset=0
                 ;;
@@ -1112,7 +1112,7 @@ editor_prompt() {
                 cursor_offset=0
                 input=""
                 ;;
-            $'\ce'|$'\e[4~'|$'\e0F'|$'\e[F') # end
+            $'\ce'|$'\e[4~'|$'\e[8~'|$'\e0F'|$'\e[F') # end
                 cursor=${#input}
                 cursor_offset=0
                 if (( ${#input} > input_width )); then
@@ -1132,7 +1132,7 @@ editor_prompt() {
                     fi
                 fi
                 ;;
-            $'\e[3~') # delete
+            $'\e[3~'|$'\e[P') # delete
                 l=$((position + 1))
                 input=${input:0:$position}${input:$l:${#input}}
                 if (( cursor_offset > 0 )); then
@@ -1201,10 +1201,9 @@ start_editor() {
                 "${fieldmapping['_size']}" "$CURSEDTAG_COLOR_OPTION" "${data[_size]}"
             printf '%s: %s%s\e[0m\n' \
                 "${fieldmapping['_length']}" "$CURSEDTAG_COLOR_OPTION" "${data[_length]}"
-            clear_next=false
         fi
 
-        if $resized || [[ -n $key ]]; then
+        if $resized || $clear_next || [[ -n $key ]]; then
             # print options
             idx=1
             for s in "${fieldorder[@]}"; do
@@ -1232,8 +1231,8 @@ start_editor() {
                 ((idx++))
             done
         fi
-
         $resized && resized=false
+        $clear_next && clear_next=false
 
         # catch multi-char special key sequences
         key=
@@ -1294,11 +1293,11 @@ start_editor() {
                     offset=$((offset > 0 ? offset : 0))
                 fi
                 ;;
-            g|$'\e[1~'|$'\e0H'|$'\e[H')  # home
+            g|$'\e[1~'|$'\e[7~'|$'\e0H'|$'\e[H')  # home
                 selected=1
                 offset=0
                 ;;
-            G|$'\e[4~'|$'\e0F'|$'\e[F')  # end
+            G|$'\e[4~'|$'\e[8~'|$'\e0F'|$'\e[F')  # end
                 selected=$list_size
                 ((offset=list_size - max_items + 1))
                 offset=$((offset > 0 ? offset : 0))
