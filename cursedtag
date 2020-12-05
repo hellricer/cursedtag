@@ -117,7 +117,9 @@ declare resized
 
 ## Helper functions for TUI
 get_term_size() {
-    eval "$(resize)"
+    size=$(stty size)
+    LINES=${size% *}
+    COLUMNS=${size#* }
 
     # Get max items that fit in the scroll area, leaving first row reserved for header.
     max_items=$((${LINES%% *} - 1))
